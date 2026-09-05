@@ -124,6 +124,10 @@ class TeachPanel(QGroupBox):
         self._fit_table_height(5)
         root.addWidget(self.table, 0)
 
+        # Absorb any leftover height here so the fields/table stay top-aligned
+        # (no gap above the table) and the file actions sit at the bottom.
+        root.addStretch(1)
+
         # File actions
         files = QHBoxLayout()
         self.btn_new = QPushButton("New")
