@@ -14,6 +14,7 @@ Axis indices: X=0, Y=1, Z=2 (this 6060 is trivkins XYZ).
 from __future__ import annotations
 
 import logging
+import os
 from typing import Tuple
 
 log = logging.getLogger("camvision.machine")
@@ -22,7 +23,17 @@ AXIS_INDEX = {"X": 0, "Y": 1, "Z": 2}
 
 
 def _load_backends():
-    """Return ``(linuxcnc, hal, simulated)`` — real modules if present, else stubs."""
+    """Return ``(linuxcnc, hal, simulated)`` — real modules if present, else stubs.
+
+    Set ``CAMVISION_FORCE_STUB=1`` to force stub mode even where the real
+    ``linuxcnc``/``hal`` modules import (used by the headless smoke test so it is
+    deterministic on a dev box, in CI, *and* on a real LinuxCNC machine where the
+    controller may not be running).
+    """
+    if os.environ.get("CAMVISION_FORCE_STUB"):
+        from . import stubs
+
+        return stubs, stubs, True
     try:
         import linuxcnc  # type: ignore
         import hal  # type: ignore

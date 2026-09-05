@@ -14,6 +14,9 @@ pytest.importorskip("PyQt5")
 pytest.importorskip("cv2")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Force stub machine so the test is deterministic even where the real
+# linuxcnc/hal modules import (e.g. on the LinuxCNC PC itself).
+os.environ["CAMVISION_FORCE_STUB"] = "1"
 
 
 @pytest.fixture(scope="module")
@@ -29,12 +32,12 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path):
 
     win = MainWindow(str(tmp_path / "config.json"))
     try:
-        assert win.controller.simulated is True  # no LinuxCNC on the test box
+        # Forced stub mode above, so this holds on any box incl. the LinuxCNC PC.
+        assert win.controller.simulated is True
         assert win.tabs.count() == 3
 
         teach = win.teach_panel
         teach.capture_start()          # stub work position (0,0)
-        teach.controller  # noqa: B018 - ensure attribute exists
         teach.add_line()               # line from (0,0) to (0,0)+current
         assert len(teach.program.segments) == 1
 
