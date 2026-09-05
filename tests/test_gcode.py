@@ -1,0 +1,71 @@
+"""G-code generation: linear, arc and offset compensation."""
+
+from camvision.program.gcode import generate_gcode
+from camvision.program.model import ArcDirection, Program
+from camvision.vision.geometry import CameraOffset
+
+
+def _program():
+    p = Program(program_name="t", operator="op", depth=-2.0, retract=10.0, z_safe=25.0,
+                spindle_rpm=24000, z_feed=800, xy_feed=600)
+    return p
+
+
+def test_linear_program_structure_and_offset():
+    p = _program()
+    p.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)
+    offset = CameraOffset(x=100.0, y=5.0)
+    g = generate_gcode(p, offset=offset, apply_offset=True)
+
+    # Preamble and postamble
+    assert g[0] == "G54"
+    assert "G21" in g and "G90" in g and "G17" in g
+    assert g[-1] == "M30"
+    assert "M5" in g
+    assert any(line.startswith("M3 S24000") for line in g)
+
+    # Start point compensated by the camera offset (10-100, 20-5)
+    assert "G0 X-90.0000 Y15.0000" in g
+    # Cut to compensated end (30-100, 20-5) at xy feed
+    assert "G1 X-70.0000 Y15.0000 F600" in g
+    # Plunge at z feed
+    assert "G1 Z-2.0000 F800" in g
+
+
+def test_no_offset_when_disabled():
+    p = _program()
+    p.add_line((10.0, 20.0), (30.0, 20.0), z=-1.5)
+    g = generate_gcode(p, offset=CameraOffset(100, 5), apply_offset=False)
+    assert "G0 X10.0000 Y20.0000" in g
+    assert "G1 X30.0000 Y20.0000 F600" in g
+
+
+def test_arc_emits_g2_g3_with_ij():
+    p = _program()
+    # Quarter arc from (10,0) to (0,10) about origin, CCW => G3
+    p.add_arc((10.0, 0.0), (0.0, 10.0), (0.0, 0.0), z=-2.0, direction=ArcDirection.CCW)
+    g = generate_gcode(p, apply_offset=False)
+    arc_line = [ln for ln in g if ln.startswith("G3")]
+    assert arc_line, "expected a G3 arc line"
+    # I/J are relative to the start point (0-10, 0-0) => I-10 J0
+    assert "I-10.0000 J0.0000" in arc_line[0]
+    assert "X0.0000 Y10.0000" in arc_line[0]
+
+
+def test_circle_is_full_and_closes():
+    p = _program()
+    p.add_circle((5.0, 5.0), 3.0, z=-1.0)
+    g = generate_gcode(p, apply_offset=False)
+    circ = [ln for ln in g if ln.startswith("G2 ")]
+    assert circ
+    # start == end for a full circle: start is (center_x + r, center_y) = (8,5)
+    assert "X8.0000 Y5.0000" in circ[0]
+    assert "I-3.0000 J0.0000" in circ[0]
+
+
+def test_fiducial_check_inserts_mcodes():
+    p = _program()
+    p.fiducial_check = True
+    p.add_line((0, 0), (1, 0), z=-1)
+    g = generate_gcode(p, apply_offset=False)
+    assert "M101" in g and "M102" in g

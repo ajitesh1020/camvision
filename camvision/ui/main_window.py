@@ -1,0 +1,137 @@
+"""CamVision main window — assembles the panels and wires them to the machine.
+
+Layout: a persistent camera view + jog cross on the left, and a tabbed set of
+operator steps on the right (Teach · Simulate · Setup). One
+:class:`~camvision.camera.service.CameraService` feeds the view and the in-GUI
+fiducial cycle; one :class:`~camvision.machine.linuxcnc_interface.MachineController`
+handles all motion.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..camera.service import CameraService
+from ..config import ConfigManager
+from ..fiducial_cycle import FiducialCycle
+from ..machine.linuxcnc_interface import MachineController
+from .camera_view import CameraView
+from .jog_panel import JogPanel
+from .setup_panel import SetupPanel
+from .simulate_panel import SimulatePanel
+from .teach_panel import TeachPanel
+
+log = logging.getLogger("camvision.ui.main")
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, config_path: str):
+        super().__init__()
+        self.setWindowTitle("CamVision — PCB Depaneling")
+
+        self.config = ConfigManager(config_path)
+        self.controller = MachineController()
+
+        device = int(self.config.get("Camera_Settings", "video_input_port", 0))
+        self.camera = CameraService(device=device)
+        self.camera.flip_x = self.config.get("Camera_Settings", "flip_x", False)
+        self.camera.flip_y = self.config.get("Camera_Settings", "flip_y", False)
+        self.camera.rotation_angle = int(self.config.get("Camera_Settings", "rotation_angle", 0))
+
+        self._build_ui()
+        self._wire()
+        self.camera.start()
+
+        # Live machine-position readout
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._update_status)
+        self._status_timer.start(200)
+
+    # -- construction -----------------------------------------------------
+    def _build_ui(self) -> None:
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QHBoxLayout(central)
+
+        # Left: camera + jog
+        left = QVBoxLayout()
+        self.camera_view = CameraView(self.controller, self.config)
+        left.addWidget(self.camera_view)
+        self.jog_panel = JogPanel(self.controller, self.config)
+        left.addWidget(self.jog_panel)
+        root.addLayout(left)
+
+        # Right: tabs
+        self.tabs = QTabWidget()
+        self.teach_panel = TeachPanel(self.controller, self.config)
+        self.simulate_panel = SimulatePanel(self.teach_panel, self.camera_view, self.config)
+        self.setup_panel = SetupPanel(self.controller, self.config, self.camera)
+        self.tabs.addTab(self.teach_panel, "Teach")
+        self.tabs.addTab(self.simulate_panel, "Simulate")
+        self.tabs.addTab(self.setup_panel, "Setup")
+        root.addWidget(self.tabs)
+
+        self.status = QLabel()
+        self.statusBar().addWidget(self.status)
+        if self.controller.simulated:
+            self.statusBar().addPermanentWidget(QLabel("SIMULATED (no LinuxCNC)"))
+
+    def _wire(self) -> None:
+        self.camera.frame_ready.connect(self.camera_view.update_frame)
+        self.camera.error.connect(self._show_status)
+        self.camera_view.status.connect(self._show_status)
+        self.camera_view.roi_selected.connect(self._on_roi)
+
+        self.setup_panel.request_roi.connect(self.camera_view.start_roi_selection)
+        self.setup_panel.request_fiducial_cycle.connect(self._run_fiducial_cycle)
+        self.setup_panel.overlays_changed.connect(self._apply_overlays)
+        self._apply_overlays()
+
+    # -- slots ------------------------------------------------------------
+    def _apply_overlays(self) -> None:
+        self.camera_view.show_crosshair = self.config.checkbox("enable_crosshair", True)
+        self.camera_view.show_roi = self.config.checkbox("enable_roi", True)
+        self.camera_view.update()
+
+    def _on_roi(self, roi) -> None:
+        self.config.roi = roi
+        self.config.save()
+
+    def _run_fiducial_cycle(self) -> None:
+        self._show_status("Running fiducial cycle…")
+        cycle = FiducialCycle(
+            self.controller, self.camera, self.config,
+            pump_events=QApplication.processEvents,
+        )
+        angle = cycle.run()
+        if angle is None:
+            self._show_status("Fiducial cycle: no correction applied.")
+        else:
+            self._show_status(f"Fiducial cycle: applied {angle:.2f}° rotation.")
+
+    def _update_status(self) -> None:
+        try:
+            x, y, z = self.controller.work_position()
+            self.status.setText(f"Work X {x:8.3f}  Y {y:8.3f}  Z {z:8.3f} mm")
+        except Exception as exc:  # pragma: no cover
+            self.status.setText(f"status error: {exc}")
+
+    def _show_status(self, message: str) -> None:
+        self.status.setText(message)
+
+    # -- teardown ---------------------------------------------------------
+    def closeEvent(self, event):  # noqa: N802
+        self.camera.stop()
+        self.config.save()
+        event.accept()

@@ -1,0 +1,8 @@
+#!/bin/bash
+# M101 — fiducial-check hook.
+#
+# In CamVision the fiducial cycle runs *inside* the GUI (it owns the camera), so
+# this M-code is only a compatibility gate for programs exported with the
+# "fiducial check" option. It succeeds immediately; run the actual cycle from the
+# GUI's Setup tab ("Run fiducial cycle") before starting the program.
+exit 0
