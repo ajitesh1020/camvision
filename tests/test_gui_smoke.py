@@ -37,12 +37,21 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path):
         assert win.tabs.count() == 3
 
         teach = win.teach_panel
-        teach.capture_start()          # stub work position (0,0)
-        teach.add_line()               # line from (0,0) to (0,0)+current
-        # A second line so the flattened path has real length.
+        # Add-Point chaining: first call sets the start, next adds a line.
+        teach.add_point()              # start at stub (0,0)
         teach.program.add_line((0.0, 0.0), (10.0, 0.0), z=-1.0)
+        teach.program.add_line((10.0, 0.0), (10.0, 10.0), z=-1.0)
         teach._rebuild_table()
         assert len(teach.program.segments) == 2
+
+        # Insert a point after the first row keeps the path connected.
+        teach.table.selectRow(0)
+        teach.insert_point()
+        assert len(teach.program.segments) == 3
+
+        # Arc-teaching visibility toggle does not crash.
+        teach.set_arc_teaching_visible(True)
+        teach.set_arc_teaching_visible(False)
 
         # Simulation: Build draws the path on the camera view, Step advances it.
         sim = win.simulate_panel

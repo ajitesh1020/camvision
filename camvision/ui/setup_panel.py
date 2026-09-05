@@ -30,6 +30,7 @@ class SetupPanel(QGroupBox):
     request_roi = pyqtSignal()
     request_fiducial_cycle = pyqtSignal()
     overlays_changed = pyqtSignal()
+    arc_teaching_changed = pyqtSignal(bool)
 
     def __init__(self, controller, config, camera_service, parent=None):
         super().__init__("Setup", parent)
@@ -72,6 +73,11 @@ class SetupPanel(QGroupBox):
         self.chk_roi.setChecked(self.config.checkbox("enable_roi", True))
         self.chk_autodetect = QCheckBox("Fiducial autodetect overlay")
         self.chk_autodetect.setChecked(self.config.checkbox("enable_autodetection", False))
+        self.chk_arc_teach = QCheckBox("Enable arc / circle teaching")
+        self.chk_arc_teach.setToolTip("Show the 3-Point Arc, Add Circle and Circle-R controls on "
+                                      "the Teach tab. Off = straight-line teaching only.")
+        self.chk_arc_teach.setChecked(self.config.checkbox("enable_arc_teaching", False))
+        self.chk_arc_teach.stateChanged.connect(self._apply_arc_teaching)
 
         self.flip_x.setToolTip("Mirror the camera image horizontally so it matches machine +X.")
         self.flip_y.setToolTip("Mirror the camera image vertically so it matches machine +Y.")
@@ -108,7 +114,13 @@ class SetupPanel(QGroupBox):
         overlays.addWidget(self.chk_roi)
         overlays.addWidget(self.chk_autodetect)
         form.addRow(overlays)
+        form.addRow(self.chk_arc_teach)
         return box
+
+    def _apply_arc_teaching(self) -> None:
+        self.config.set_checkbox("enable_arc_teaching", self.chk_arc_teach.isChecked())
+        self.config.save()
+        self.arc_teaching_changed.emit(self.chk_arc_teach.isChecked())
 
     # -- offset / calibration --------------------------------------------
     def _offset_group(self) -> QGroupBox:

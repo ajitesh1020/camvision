@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self.setup_panel.request_roi.connect(self.camera_view.start_roi_selection)
         self.setup_panel.request_fiducial_cycle.connect(self._run_fiducial_cycle)
         self.setup_panel.overlays_changed.connect(self._apply_overlays)
+        self.setup_panel.arc_teaching_changed.connect(self.teach_panel.set_arc_teaching_visible)
         self._apply_overlays()
 
     # -- slots ------------------------------------------------------------

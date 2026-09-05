@@ -58,6 +58,7 @@ class TeachPanel(QGroupBox):
         self.program = self._new_program()
 
         self._start: Optional[Tuple[float, float]] = None
+        self._last_point: Optional[Tuple[float, float]] = None
         self._arc_points: List[Tuple[float, float]] = []
 
         root = QVBoxLayout(self)
@@ -84,7 +85,8 @@ class TeachPanel(QGroupBox):
         self.depth_spin.setToolTip("Cut depth (negative = into the material) applied to the next "
                                    "captured segment.")
         depth_row.addWidget(self.depth_spin)
-        depth_row.addWidget(QLabel("Circle R (mm):"))
+        self.radius_label = QLabel("Circle R (mm):")
+        depth_row.addWidget(self.radius_label)
         self.radius_spin = QDoubleSpinBox()
         self.radius_spin.setRange(0.1, 500.0)
         self.radius_spin.setValue(5.0)
@@ -92,26 +94,30 @@ class TeachPanel(QGroupBox):
         depth_row.addWidget(self.radius_spin)
         root.addLayout(depth_row)
 
-        # Capture buttons
+        # Capture buttons. A single "Add Point" chains straight cuts: the first
+        # click sets the start, each further click adds a line from the previous
+        # point — no separate start/line buttons to confuse the order.
         caps = QHBoxLayout()
-        self.btn_start = QPushButton("Capture Start")
-        self.btn_start.setToolTip("Record the current XY as the start of the next line.")
-        self.btn_line = QPushButton("Add Line (→ here)")
-        self.btn_line.setToolTip("Add a straight cut from the captured start to the current XY.")
+        self.btn_point = QPushButton("Add Point")
+        self.btn_point.setToolTip(
+            "Jog to a position and click. The FIRST click sets the path start; each "
+            "later click adds a straight cut from the previous point to here. Just "
+            "keep jogging and clicking Add Point for a multi-point path."
+        )
         self.btn_arc = QPushButton("3-Point Arc")
         self.btn_arc.setToolTip("Capture three points (start, a point on the arc, end); the arc "
                                 "through them is added. Click three times at three positions.")
         self.btn_circle = QPushButton("Add Circle (here)")
         self.btn_circle.setToolTip("Add a full circle centred at the current XY with the radius above.")
-        for b in (self.btn_start, self.btn_line, self.btn_arc, self.btn_circle):
+        for b in (self.btn_point, self.btn_arc, self.btn_circle):
             caps.addWidget(b)
         root.addLayout(caps)
-        self.btn_start.clicked.connect(self.capture_start)
-        self.btn_line.clicked.connect(self.add_line)
+        self.btn_point.clicked.connect(self.add_point)
         self.btn_arc.clicked.connect(self.capture_arc_point)
         self.btn_circle.clicked.connect(self.add_circle)
 
-        self.arc_status = QLabel("")
+        self.arc_status = QLabel("Click Add Point to set the start of the path.")
+        self.arc_status.setWordWrap(True)
         root.addWidget(self.arc_status)
 
         # Table
@@ -124,26 +130,45 @@ class TeachPanel(QGroupBox):
         self._fit_table_height(5)
         root.addWidget(self.table, 0)
 
+        # Row editing: insert a point after the selected row, jog to a row, delete.
+        edit = QHBoxLayout()
+        self.btn_insert = QPushButton("Insert Point (here)")
+        self.btn_insert.setToolTip(
+            "Insert the current position as a new cutting point right after the "
+            "selected row, reconnecting the following segment — for adding a point "
+            "in the middle of a saved program."
+        )
+        self.btn_goto = QPushButton("Move to Selected")
+        self.btn_goto.setToolTip("Rapid the machine to the selected row's start point (safe Z first).")
+        self.btn_del = QPushButton("Delete Row")
+        self.btn_del.setToolTip("Remove the selected segment from the program.")
+        for b in (self.btn_insert, self.btn_goto, self.btn_del):
+            edit.addWidget(b)
+        root.addLayout(edit)
+        self.btn_insert.clicked.connect(self.insert_point)
+        self.btn_goto.clicked.connect(self.move_to_selected)
+        self.btn_del.clicked.connect(self.delete_row)
+
         # File actions
         files = QHBoxLayout()
         self.btn_new = QPushButton("New")
         self.btn_new.setToolTip("Clear the table and start a new program.")
-        self.btn_del = QPushButton("Delete Row")
-        self.btn_del.setToolTip("Remove the selected segment from the program.")
         self.btn_save = QPushButton("Save .cvprog")
         self.btn_save.setToolTip("Save the editable program (segments + metadata) to a .cvprog file.")
         self.btn_load = QPushButton("Load .cvprog")
         self.btn_load.setToolTip("Load a saved .cvprog program back into the table for editing.")
         self.btn_export = QPushButton("Export G-code")
         self.btn_export.setToolTip("Generate a .ngc file (camera offset compensated) to run in AXIS.")
-        for b in (self.btn_new, self.btn_del, self.btn_save, self.btn_load, self.btn_export):
+        for b in (self.btn_new, self.btn_save, self.btn_load, self.btn_export):
             files.addWidget(b)
         root.addLayout(files)
         self.btn_new.clicked.connect(self.new_program)
-        self.btn_del.clicked.connect(self.delete_row)
         self.btn_save.clicked.connect(self.save)
         self.btn_load.clicked.connect(self.load)
         self.btn_export.clicked.connect(self.export_gcode)
+
+        # Apply the arc/circle-teaching visibility from settings.
+        self.set_arc_teaching_visible(self.config.checkbox("enable_arc_teaching", False))
 
     def _fit_table_height(self, rows: int) -> None:
         """Fix the table viewport to ``rows`` rows; extra rows scroll inside it."""
@@ -176,20 +201,35 @@ class TeachPanel(QGroupBox):
         self._sync_meta()
         self.program_changed.emit()
 
+    # -- visibility -------------------------------------------------------
+    def set_arc_teaching_visible(self, visible: bool) -> None:
+        """Show/hide the arc + circle controls (toggled from Setup)."""
+        for w in (self.btn_arc, self.btn_circle, self.radius_label, self.radius_spin):
+            w.setVisible(visible)
+
     # -- capture ----------------------------------------------------------
+    def add_point(self) -> None:
+        """Chain straight cuts: first click sets the start, each next adds a line."""
+        p = self._current_xy()
+        if self._last_point is None:
+            self._last_point = p
+            self.arc_status.setText(
+                f"Start point set at {p[0]:.3f}, {p[1]:.3f}. Jog to the next point "
+                f"and click Add Point again."
+            )
+            return
+        self.program.add_line(self._last_point, p, self.depth_spin.value())
+        self._last_point = p
+        self._append_row(self.program.segments[-1])
+        self.arc_status.setText(f"Line added to {p[0]:.3f}, {p[1]:.3f}. Add Point for the next.")
+        self._emit_changed()
+
+    # Kept for compatibility / tests: explicit start + line.
     def capture_start(self) -> None:
-        self._start = self._current_xy()
-        self.arc_status.setText(f"Start captured at {self._start[0]:.3f}, {self._start[1]:.3f}")
+        self._last_point = self._current_xy()
 
     def add_line(self) -> None:
-        if self._start is None:
-            QMessageBox.warning(self, "No start", "Capture a start point first.")
-            return
-        end = self._current_xy()
-        self.program.add_line(self._start, end, self.depth_spin.value())
-        self._start = None
-        self._append_row(self.program.segments[-1])
-        self._emit_changed()
+        self.add_point()
 
     def capture_arc_point(self) -> None:
         self._arc_points.append(self._current_xy())
@@ -206,6 +246,7 @@ class TeachPanel(QGroupBox):
             direction = arc_direction_from_three_points(p1, p2, p3)
             self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
             self._arc_points = []
+            self._last_point = p3  # continue the chain from the arc end
             self.arc_status.setText("Arc added.")
             self._append_row(self.program.segments[-1])
             self._emit_changed()
@@ -215,6 +256,44 @@ class TeachPanel(QGroupBox):
         self.program.add_circle(center, self.radius_spin.value(), self.depth_spin.value())
         self._append_row(self.program.segments[-1])
         self._emit_changed()
+
+    # -- row editing ------------------------------------------------------
+    def insert_point(self) -> None:
+        """Insert the current position as a cutting point after the selected row."""
+        i = self.table.currentRow()
+        if i < 0 or i >= len(self.program.segments):
+            QMessageBox.information(self, "Select a row",
+                                    "Select the row to insert the new point after.")
+            return
+        p = self._current_xy()
+        anchor = self.program.segments[i].end or self.program.segments[i].start
+        new_seg = Segment(type=SegmentType.LINE, start=anchor, end=p, z=self.depth_spin.value())
+        self.program.segments.insert(i + 1, new_seg)
+        # Reconnect the following line so the path stays continuous.
+        if i + 2 < len(self.program.segments):
+            nxt = self.program.segments[i + 2]
+            if nxt.type == SegmentType.LINE:
+                nxt.start = p
+        self._rebuild_table()
+        self.table.selectRow(i + 1)
+        self._emit_changed()
+
+    def move_to_selected(self) -> None:
+        """Rapid the machine to the selected row's start point (safe Z first)."""
+        i = self.table.currentRow()
+        if i < 0 or i >= len(self.program.segments):
+            QMessageBox.information(self, "Select a row", "Select a row to move to.")
+            return
+        target = self.program.segments[i].start
+        if target is None:
+            return
+        reason = self.controller.not_ready_reason()
+        if reason:
+            QMessageBox.warning(self, "Machine not ready", reason)
+            return
+        safe_z = self.config.gcode_params()["z_safe"]
+        self.controller.mdi(f"G0 Z{safe_z:.4f}")
+        self.controller.move_work_xy(target[0], target[1])
 
     # -- table ------------------------------------------------------------
     def _append_row(self, seg: Segment) -> None:
@@ -256,7 +335,9 @@ class TeachPanel(QGroupBox):
         self.name_edit.clear()
         self.operator_edit.clear()
         self._start = None
+        self._last_point = None
         self._arc_points = []
+        self.arc_status.setText("Click Add Point to set the start of the path.")
         self.table.setRowCount(0)
         self._emit_changed()
 
@@ -283,6 +364,8 @@ class TeachPanel(QGroupBox):
         self.name_edit.setText(self.program.program_name)
         self.operator_edit.setText(self.program.operator)
         self.depth_spin.setValue(self.program.depth)
+        # Continue the Add-Point chain from the last taught point.
+        self._last_point = self.program.segments[-1].end if self.program.segments else None
         self._rebuild_table()
         self._emit_changed()
 

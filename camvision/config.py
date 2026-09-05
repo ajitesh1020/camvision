@@ -76,6 +76,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "enable_roi": True,
         "apply_spindle_offsets": True,
         "enable_fiducial_check": False,
+        "enable_arc_teaching": False,
     },
 }
 

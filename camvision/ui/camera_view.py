@@ -109,8 +109,13 @@ class CameraView(QLabel):
         import cv2
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        return QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
+        # Force a C-contiguous buffer and pass the real row stride. If the array
+        # has padding (or is a non-contiguous view after flip/rotate) a computed
+        # 3*w stride is wrong and paints a torn horizontal black line during rapid
+        # updates — using strides[0] on a contiguous copy avoids that.
+        rgb = np.ascontiguousarray(rgb)
+        h, w, _ch = rgb.shape
+        return QImage(rgb.data, w, h, rgb.strides[0], QImage.Format_RGB888).copy()
 
     # -- overlays ---------------------------------------------------------
     def _draw_overlays(self, painter: QPainter) -> None:
