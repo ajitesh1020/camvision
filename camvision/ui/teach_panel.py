@@ -66,9 +66,11 @@ class TeachPanel(QGroupBox):
         meta = QHBoxLayout()
         meta.addWidget(QLabel("Program:"))
         self.name_edit = QLineEdit()
+        self.name_edit.setToolTip("Program name, stored in the saved .cvprog file.")
         meta.addWidget(self.name_edit)
         meta.addWidget(QLabel("Operator:"))
         self.operator_edit = QLineEdit()
+        self.operator_edit.setToolTip("Operator name, stored with the program for traceability.")
         meta.addWidget(self.operator_edit)
         root.addLayout(meta)
 
@@ -79,20 +81,28 @@ class TeachPanel(QGroupBox):
         self.depth_spin.setRange(-100.0, 50.0)
         self.depth_spin.setDecimals(3)
         self.depth_spin.setValue(self.config.gcode_params()["depth"])
+        self.depth_spin.setToolTip("Cut depth (negative = into the material) applied to the next "
+                                   "captured segment.")
         depth_row.addWidget(self.depth_spin)
         depth_row.addWidget(QLabel("Circle R (mm):"))
         self.radius_spin = QDoubleSpinBox()
         self.radius_spin.setRange(0.1, 500.0)
         self.radius_spin.setValue(5.0)
+        self.radius_spin.setToolTip("Radius used by 'Add Circle' (centre = current position).")
         depth_row.addWidget(self.radius_spin)
         root.addLayout(depth_row)
 
         # Capture buttons
         caps = QHBoxLayout()
         self.btn_start = QPushButton("Capture Start")
+        self.btn_start.setToolTip("Record the current XY as the start of the next line.")
         self.btn_line = QPushButton("Add Line (→ here)")
+        self.btn_line.setToolTip("Add a straight cut from the captured start to the current XY.")
         self.btn_arc = QPushButton("3-Point Arc")
+        self.btn_arc.setToolTip("Capture three points (start, a point on the arc, end); the arc "
+                                "through them is added. Click three times at three positions.")
         self.btn_circle = QPushButton("Add Circle (here)")
+        self.btn_circle.setToolTip("Add a full circle centred at the current XY with the radius above.")
         for b in (self.btn_start, self.btn_line, self.btn_arc, self.btn_circle):
             caps.addWidget(b)
         root.addLayout(caps)
@@ -107,15 +117,21 @@ class TeachPanel(QGroupBox):
         # Table
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table.setToolTip("Taught segments. Select a row and 'Delete Row' to remove it.")
         root.addWidget(self.table)
 
         # File actions
         files = QHBoxLayout()
         self.btn_new = QPushButton("New")
+        self.btn_new.setToolTip("Clear the table and start a new program.")
         self.btn_del = QPushButton("Delete Row")
+        self.btn_del.setToolTip("Remove the selected segment from the program.")
         self.btn_save = QPushButton("Save .cvprog")
+        self.btn_save.setToolTip("Save the editable program (segments + metadata) to a .cvprog file.")
         self.btn_load = QPushButton("Load .cvprog")
+        self.btn_load.setToolTip("Load a saved .cvprog program back into the table for editing.")
         self.btn_export = QPushButton("Export G-code")
+        self.btn_export.setToolTip("Generate a .ngc file (camera offset compensated) to run in AXIS.")
         for b in (self.btn_new, self.btn_del, self.btn_save, self.btn_load, self.btn_export):
             files.addWidget(b)
         root.addLayout(files)

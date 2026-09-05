@@ -59,6 +59,25 @@ def pixel_offset_from_center(
     return pixel_x - cx, pixel_y - cy
 
 
+def quadrant_jog_signs(
+    pixel_x: float,
+    pixel_y: float,
+    width: int = FRAME_WIDTH,
+    height: int = FRAME_HEIGHT,
+) -> Tuple[int, int]:
+    """Machine (x_sign, y_sign) for a click, decided purely by its quadrant.
+
+    A click to the **right** of the crosshair jogs X+, to the left X-; a click
+    **above** the crosshair jogs Y+, below Y- (machine +Y is up, image +y down).
+    Every click therefore jogs *both* axes by one fixed step toward its quadrant,
+    which is deterministic — unlike scaling the raw pixel distance into a move.
+    """
+    cx, cy = frame_center(width, height)
+    x_sign = 1 if pixel_x >= cx else -1
+    y_sign = 1 if pixel_y <= cy else -1
+    return x_sign, y_sign
+
+
 def camera_pixel_to_machine_delta(
     pixel_x: float,
     pixel_y: float,

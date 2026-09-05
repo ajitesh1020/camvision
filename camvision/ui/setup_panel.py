@@ -40,7 +40,7 @@ class SetupPanel(QGroupBox):
         root.addWidget(self._camera_group())
         root.addWidget(self._offset_group())
         root.addWidget(self._fiducial_group())
-        root.addWidget(self._action_group())
+        # Camera up/down and Set X/Y Zero now live on the main camera bar.
 
     # -- camera / overlays -----------------------------------------------
     def _camera_group(self) -> QGroupBox:
@@ -71,6 +71,22 @@ class SetupPanel(QGroupBox):
         self.chk_roi.setChecked(self.config.checkbox("enable_roi", True))
         self.chk_autodetect = QCheckBox("Fiducial autodetect overlay")
         self.chk_autodetect.setChecked(self.config.checkbox("enable_autodetection", False))
+
+        self.flip_x.setToolTip("Mirror the camera image horizontally so it matches machine +X.")
+        self.flip_y.setToolTip("Mirror the camera image vertically so it matches machine +Y.")
+        self.rotation.setToolTip("Rotate the camera image by 0/90/180/270° to match the mount.")
+        self.device.setToolTip("Numeric /dev/videoN index (unstable). Prefer the Stable handle below.")
+        self.device_handle.setToolTip(
+            "Stable camera handle that survives the port renumbering: a "
+            "/dev/v4l/by-id/... symlink, a device path, or a name/serial fragment. "
+            "Empty = use the numeric index."
+        )
+        self.btn_detect.setToolTip(
+            "List cameras and pin the selected index to its stable /dev/v4l/by-id handle."
+        )
+        self.chk_crosshair.setToolTip("Show/hide the centre crosshair used for zeroing.")
+        self.chk_roi.setToolTip("Show/hide the fiducial region-of-interest rectangle.")
+        self.chk_autodetect.setToolTip("Continuously overlay detected fiducial circles in the ROI.")
 
         self.flip_x.stateChanged.connect(self._apply_camera)
         self.flip_y.stateChanged.connect(self._apply_camera)
@@ -112,6 +128,14 @@ class SetupPanel(QGroupBox):
         self.inspect_z.setDecimals(3)
         self.inspect_z.setValue(self.config.inspect_z)
 
+        self.off_x.setToolTip("Camera-to-spindle X offset (mm): spindle X minus camera X. "
+                              "Subtracted from taught points so the tool cuts where the camera saw.")
+        self.off_y.setToolTip("Camera-to-spindle Y offset (mm): spindle Y minus camera Y.")
+        self.mm_per_px.setToolTip("Millimetres per camera pixel, from calibration. Used to scale "
+                                  "the view and fiducial positions.")
+        self.inspect_z.setToolTip("Machine Z the camera drops to when inspecting (before fixture "
+                                  "and baseplate thickness are added).")
+
         for w in (self.off_x, self.off_y, self.inspect_z):
             w.valueChanged.connect(self._apply_offsets)
         self.mm_per_px.editingFinished.connect(self._apply_offsets)
@@ -128,13 +152,19 @@ class SetupPanel(QGroupBox):
         form = QFormLayout(box)
         self.chk_fiducial = QCheckBox("Enable fiducial check before run")
         self.chk_fiducial.setChecked(self.config.checkbox("enable_fiducial_check", False))
+        self.chk_fiducial.setToolTip("When on, the exported program includes the fiducial "
+                                     "correction hooks and you run the cycle before cutting.")
         self.chk_fiducial.stateChanged.connect(self._apply_overlays)
 
         h = self.config.hough_params
         self.p1 = QSpinBox(); self.p1.setRange(1, 500); self.p1.setValue(h.param1)
+        self.p1.setToolTip("HoughCircles param1: Canny edge high threshold. Lower finds more edges.")
         self.p2 = QSpinBox(); self.p2.setRange(1, 500); self.p2.setValue(h.param2)
+        self.p2.setToolTip("HoughCircles param2: accumulator threshold. Lower detects more (weaker) circles.")
         self.min_r = QSpinBox(); self.min_r.setRange(1, 500); self.min_r.setValue(h.min_radius)
+        self.min_r.setToolTip("Smallest fiducial circle radius to detect, in pixels.")
         self.max_r = QSpinBox(); self.max_r.setRange(1, 500); self.max_r.setValue(h.max_radius)
+        self.max_r.setToolTip("Largest fiducial circle radius to detect, in pixels.")
         for w in (self.p1, self.p2, self.min_r, self.max_r):
             w.valueChanged.connect(self._apply_fiducial)
 
@@ -146,26 +176,16 @@ class SetupPanel(QGroupBox):
 
         btns = QHBoxLayout()
         self.btn_set_roi = QPushButton("Set ROI")
+        self.btn_set_roi.setToolTip("Then drag a rectangle on the camera view to set the fiducial "
+                                    "search region.")
         self.btn_run_cycle = QPushButton("Run fiducial cycle")
+        self.btn_run_cycle.setToolTip("Move to both taught fiducials, detect them, and apply the "
+                                      "rotation correction (G10 L2 P0 R). Homed machine required.")
         btns.addWidget(self.btn_set_roi)
         btns.addWidget(self.btn_run_cycle)
         form.addRow(btns)
         self.btn_set_roi.clicked.connect(self.request_roi.emit)
         self.btn_run_cycle.clicked.connect(self.request_fiducial_cycle.emit)
-        return box
-
-    # -- machine actions --------------------------------------------------
-    def _action_group(self) -> QGroupBox:
-        box = QGroupBox("Machine actions")
-        row = QHBoxLayout(box)
-        self.btn_zero = QPushButton("Set X/Y Zero (crosshair)")
-        self.btn_cam_down = QPushButton("Camera Down")
-        self.btn_cam_up = QPushButton("Camera Up")
-        for b in (self.btn_zero, self.btn_cam_down, self.btn_cam_up):
-            row.addWidget(b)
-        self.btn_zero.clicked.connect(lambda: self.controller.set_work_zero_xy())
-        self.btn_cam_down.clicked.connect(lambda: self.controller.camera_down())
-        self.btn_cam_up.clicked.connect(lambda: self.controller.camera_up())
         return box
 
     # -- persistence ------------------------------------------------------

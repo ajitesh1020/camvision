@@ -69,6 +69,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "Fixture_Thickness": {"fixture_thickness": "10"},
     "Base_Plate_Thickness": {"baseplate_thickness": "0"},
     "Current_Jog_Speed": {"jog_speed": 1000},
+    "Current_Jog_Step": {"step_mm": 1.0},
     "Checkbox_States": {
         "enable_autodetection": False,
         "enable_crosshair": True,
@@ -192,6 +193,15 @@ class ConfigManager:
     @jog_speed.setter
     def jog_speed(self, value: float) -> None:
         self.data["Current_Jog_Speed"]["jog_speed"] = float(value)
+
+    @property
+    def jog_step(self) -> float:
+        """Fixed increment (mm) for a tap / click-jog step."""
+        return float(self.data["Current_Jog_Step"]["step_mm"])
+
+    @jog_step.setter
+    def jog_step(self, value: float) -> None:
+        self.data["Current_Jog_Step"]["step_mm"] = float(value)
 
     def gcode_params(self) -> Dict[str, float]:
         """Numeric G-code parameters (legacy stored these as strings)."""

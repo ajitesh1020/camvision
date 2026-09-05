@@ -37,9 +37,13 @@ class SimulatePanel(QGroupBox):
 
         row = QHBoxLayout()
         self.btn_build = QPushButton("Build")
+        self.btn_build.setToolTip("Compute and draw the offset-compensated cut path on the camera view.")
         self.btn_play = QPushButton("Play")
+        self.btn_play.setToolTip("Animate the tool along the taught path in real time.")
         self.btn_step = QPushButton("Step")
+        self.btn_step.setToolTip("Advance the animated tool one point.")
         self.btn_reset = QPushButton("Reset")
+        self.btn_reset.setToolTip("Clear the simulation overlay and rewind to the start.")
         for b in (self.btn_build, self.btn_play, self.btn_step, self.btn_reset):
             row.addWidget(b)
         root.addLayout(row)

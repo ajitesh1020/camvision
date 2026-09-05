@@ -4,14 +4,15 @@ Fixed at the camera's native 640x480 so a widget pixel equals an image pixel and
 no scaling maths is needed to map a click to a machine move. Overlays (crosshair,
 centre circle, ROI, optional simulation path) are drawn on top of the pixmap.
 
-Mouse-click jog (the user's spec: "mouse click x y jog, long press move rapid,
-short press slow jog"):
+Mouse-click jog:
 
-* **Short click** (< press threshold): the clicked pixel is converted to a work
-  delta and the machine makes a **slow feed move** so that point comes under the
-  crosshair — a precise "go to what I clicked".
-* **Long press** (held): a **continuous rapid jog** toward the clicked direction
-  begins and continues until the button is released.
+* **Short click** → a single **fixed-step** jog. The click's quadrant (relative
+  to the crosshair) sets the direction and the machine moves **one Step on both X
+  and Y** toward it — e.g. a click in the top-right jogs X+ and Y+ by the Step.
+  Deterministic: every click moves the same known distance, chosen with the Step
+  selector in the jog panel.
+* **Long press** (held) → a **continuous rapid jog** toward the clicked quadrant
+  (both axes) until the button is released.
 """
 
 from __future__ import annotations
@@ -27,14 +28,14 @@ from PyQt5.QtWidgets import QLabel
 from ..vision.geometry import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
-    camera_pixel_to_machine_delta,
     frame_center,
+    quadrant_jog_signs,
 )
 
 log = logging.getLogger("camvision.ui.camera")
 
 LONG_PRESS_MS = 250     # hold longer than this => continuous rapid jog
-SLOW_FEED_MM_MIN = 200  # feed for the short-click "go to point" move
+STEP_FEED_MM_MIN = 600  # feed for a single fixed-step click jog
 
 
 class CameraView(QLabel):
@@ -51,6 +52,16 @@ class CameraView(QLabel):
         self.setFixedSize(FRAME_WIDTH, FRAME_HEIGHT)
         self.setMouseTracking(True)
         self.setStyleSheet("background:#111;")
+        self.setToolTip(
+            "Click to jog: a single click moves one Step on X and Y toward the "
+            "clicked quadrant (crosshair = centre). Press and hold to jog "
+            "continuously (rapid) until you release. Set the distance with the "
+            "Step selector in the Jog panel. Mouse wheel resizes the centre circle."
+        )
+
+        # Fixed step (mm) for a single click jog; set by MainWindow to share the
+        # jog panel's Step selector. Falls back to 1 mm.
+        self.jog_step_getter = lambda: 1.0
 
         # Overlay toggles
         self.show_crosshair = True
@@ -209,39 +220,37 @@ class CameraView(QLabel):
             # A long press was in progress — stop the continuous jog.
             self._stop_continuous_jog()
         elif self._press_timer.isActive():
-            # Released before the threshold => short click => go-to-point.
+            # Released before the threshold => short click => one fixed step.
             self._press_timer.stop()
-            self._go_to_point(self._press_pos)
+            self._jog_step(self._press_pos)
         self._press_pos = None
 
     def mouseDoubleClickEvent(self, event):  # noqa: N802 — keep double-clicks from double-jogging
         pass
 
     # -- jog actions ------------------------------------------------------
-    def _go_to_point(self, pos) -> None:
-        """Slow feed move so the clicked pixel comes under the crosshair."""
+    def _jog_step(self, pos) -> None:
+        """One fixed-step jog on both X and Y toward the clicked quadrant."""
         if pos is None:
             return
-        dx, dy = camera_pixel_to_machine_delta(pos[0], pos[1], self.config.mm_per_pixel)
-        if abs(dx) < 1e-4 and abs(dy) < 1e-4:
-            return
-        self.status.emit(f"Go-to-point: dX={dx:.3f} dY={dy:.3f} mm (slow)")
-        self.controller.jog_to_work_xy(dx, dy, SLOW_FEED_MM_MIN)
+        xs, ys = quadrant_jog_signs(pos[0], pos[1])
+        step = self.jog_step_getter()
+        dx, dy = xs * step, ys * step
+        self.status.emit(
+            f"Step jog: X{'+' if xs > 0 else '−'}{step:g} Y{'+' if ys > 0 else '−'}{step:g} mm"
+        )
+        self.controller.jog_to_work_xy(dx, dy, STEP_FEED_MM_MIN)
 
     def _begin_continuous_jog(self) -> None:
-        """Timer fired while still held => rapid continuous jog toward the click."""
+        """Timer fired while still held => rapid continuous jog toward the quadrant."""
         if self._press_pos is None:
             return
-        dx, dy = camera_pixel_to_machine_delta(self._press_pos[0], self._press_pos[1],
-                                               self.config.mm_per_pixel)
+        xs, ys = quadrant_jog_signs(self._press_pos[0], self._press_pos[1])
         speed = self.config.jog_speed
         self._jogging_axes = []
-        if abs(dx) > 1e-6:
-            self.controller.jog_continuous("X", 1 if dx > 0 else -1, speed)
-            self._jogging_axes.append("X")
-        if abs(dy) > 1e-6:
-            self.controller.jog_continuous("Y", 1 if dy > 0 else -1, speed)
-            self._jogging_axes.append("Y")
+        self.controller.jog_continuous("X", xs, speed)
+        self.controller.jog_continuous("Y", ys, speed)
+        self._jogging_axes = ["X", "Y"]
         self.status.emit("Rapid jog (hold)…")
 
     def _stop_continuous_jog(self) -> None:

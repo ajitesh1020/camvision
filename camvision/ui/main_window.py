@@ -1,10 +1,14 @@
 """CamVision main window — assembles the panels and wires them to the machine.
 
-Layout: a persistent camera view + jog cross on the left, and a tabbed set of
-operator steps on the right (Teach · Simulate · Setup). One
-:class:`~camvision.camera.service.CameraService` feeds the view and the in-GUI
-fiducial cycle; one :class:`~camvision.machine.linuxcnc_interface.MachineController`
-handles all motion.
+Compact layout tuned to sit beside the AXIS GUI on a 1920x1080 screen:
+
+* **Left column** — the live camera view, a thin action bar under it (camera
+  up/down + set X/Y zero), and the Teach/Simulate/Setup tabs *below* the frame.
+* **Right column** — the jog controls (step selector, XYZ cross, speed).
+
+One :class:`~camvision.camera.service.CameraService` feeds the view and the
+in-GUI fiducial cycle; one
+:class:`~camvision.machine.linuxcnc_interface.MachineController` handles motion.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -62,16 +67,21 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(8)
 
-        # Left: camera + jog
-        left = QVBoxLayout()
-        self.camera_view = CameraView(self.controller, self.config)
-        left.addWidget(self.camera_view)
+        # Jog panel first so the camera view can share its Step selector.
         self.jog_panel = JogPanel(self.controller, self.config)
-        left.addWidget(self.jog_panel)
-        root.addLayout(left)
+        self.jog_panel.setFixedWidth(200)
 
-        # Right: tabs
+        # -- left column: camera + action bar + tabs ----------------------
+        left = QVBoxLayout()
+        left.setSpacing(4)
+        self.camera_view = CameraView(self.controller, self.config)
+        self.camera_view.jog_step_getter = self.jog_panel.current_step
+        left.addWidget(self.camera_view)
+        left.addWidget(self._camera_action_bar())
+
         self.tabs = QTabWidget()
         self.teach_panel = TeachPanel(self.controller, self.config)
         self.simulate_panel = SimulatePanel(self.teach_panel, self.camera_view, self.config)
@@ -79,12 +89,51 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.teach_panel, "Teach")
         self.tabs.addTab(self.simulate_panel, "Simulate")
         self.tabs.addTab(self.setup_panel, "Setup")
-        root.addWidget(self.tabs)
+        self.tabs.setToolTip("Teach a program, preview it in Simulate, and configure the "
+                             "machine/camera in Setup.")
+        left.addWidget(self.tabs, 1)
+        root.addLayout(left, 1)
+
+        # -- right column: jog -------------------------------------------
+        right = QVBoxLayout()
+        right.addWidget(self.jog_panel)
+        right.addStretch(1)
+        root.addLayout(right)
 
         self.status = QLabel()
         self.statusBar().addWidget(self.status)
         if self.controller.simulated:
             self.statusBar().addPermanentWidget(QLabel("SIMULATED (no LinuxCNC)"))
+
+        # Fit beside AXIS without clipping on a 1080p screen.
+        self.resize(880, 1000)
+
+    def _camera_action_bar(self) -> QWidget:
+        """Thin bar under the camera: camera cylinder up/down + set work zero."""
+        bar = QWidget()
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_cam_down = QPushButton("Camera ▼ Down")
+        self.btn_cam_down.setToolTip("Deploy the camera (pneumatic cylinder down) to inspect — M64 P0.")
+        self.btn_cam_up = QPushButton("Camera ▲ Up")
+        self.btn_cam_up.setToolTip("Retract the camera (cylinder up) for cutting — M65 P0.")
+        self.btn_set_zero = QPushButton("Set X/Y Zero")
+        self.btn_set_zero.setToolTip(
+            "Set the current position as the G54 work zero (align the crosshair to "
+            "the PCB edge first) — G10 L20 P0 X0 Y0."
+        )
+        self.btn_cam_down.clicked.connect(lambda: self._machine_action(self.controller.camera_down))
+        self.btn_cam_up.clicked.connect(lambda: self._machine_action(self.controller.camera_up))
+        self.btn_set_zero.clicked.connect(lambda: self._machine_action(self.controller.set_work_zero_xy))
+        for b in (self.btn_cam_down, self.btn_cam_up, self.btn_set_zero):
+            row.addWidget(b)
+        return bar
+
+    def _machine_action(self, fn) -> None:
+        ok = fn()
+        if ok is False:
+            self._show_status("Machine not ready (check power / homing / e-stop).")
 
     def _wire(self) -> None:
         self.camera.frame_ready.connect(self.camera_view.update_frame)

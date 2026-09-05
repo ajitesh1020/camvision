@@ -18,10 +18,11 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
 - **Set X/Y zero**: align the crosshair to the physical PCB edge and set the G54
   work zero (`G10 L20 P0 X0 Y0`).
 - **Mouse-click jog** on the camera image:
-  - **short click** → a slow feed move so the clicked point comes under the
-    crosshair (precise "go to what I clicked");
-  - **long press / hold** → continuous rapid jog toward the click until release.
-  On-screen jog buttons follow the same tap=slow-step / hold=rapid rule.
+  - **short click** → one fixed **Step** on both X and Y toward the clicked
+    quadrant (crosshair = centre), so every click moves a known distance;
+  - **long press / hold** → continuous rapid jog toward the quadrant until release.
+  The **Step** (mm) is chosen in the Jog panel and shared with the on-screen jog
+  buttons (tap = one step, hold = rapid).
 - **Teach** linear cuts (capture start → add line), **arcs** (3-point capture →
   true G2/G3), and **full circles** (centre + radius). Programs carry a **name**
   and **operator**, save as editable `.cvprog`, and reload for editing.
