@@ -4,7 +4,8 @@ Faithfully reproduces the legacy program skeleton (see
 ``cam_align/cam_jog.py::generate_gcode``) and extends it with arc (G2/G3) and
 full-circle support. The camera-to-spindle offset is applied here so the spindle
 cuts exactly where the camera taught the line; Z rides at the safe height between
-cuts and plunges per segment.
+cuts and plunges per segment. A header comment block records the operator, the
+creation time, the segment/point counts and the program extents.
 
 Pure function of the model + offset — no Qt, no LinuxCNC — so it is unit-tested
 directly (``tests/test_gcode.py``).
@@ -12,10 +13,12 @@ directly (``tests/test_gcode.py``).
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, Tuple
 
 from ..vision.geometry import CameraOffset
 from .model import ArcDirection, Program, Segment, SegmentType
+from .simulator import bounding_box, flatten_points, simulate
 
 
 def _fmt_xy(x: float, y: float) -> str:
@@ -27,6 +30,23 @@ def _arc_ij(start: Tuple[float, float], center: Tuple[float, float]) -> str:
     i = center[0] - start[0]
     j = center[1] - start[1]
     return f"I{i:.4f} J{j:.4f}"
+
+
+def _header(program: Program, off: CameraOffset, apply_offset: bool) -> List[str]:
+    """Comment lines describing the program (operator, time, size, point count)."""
+    sim = simulate(program, offset=off, apply_offset=apply_offset)
+    pts = flatten_points(sim)
+    min_x, min_y, max_x, max_y = bounding_box(sim)
+    return [
+        f"( CamVision program: {program.program_name or 'unnamed'} )",
+        f"( Operator: {program.operator or 'n/a'} )",
+        f"( Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} )",
+        f"( Segments: {len(program.segments)}   Cut points: {len(pts)} )",
+        f"( Extents mm: X {min_x:.3f}..{max_x:.3f}  Y {min_y:.3f}..{max_y:.3f} )",
+        f"( Size mm: {max_x - min_x:.3f} x {max_y - min_y:.3f} )",
+        f"( Camera->spindle offset applied: {'yes' if apply_offset else 'no'}"
+        f"  X{off.x:.3f} Y{off.y:.3f} )",
+    ]
 
 
 def generate_gcode(
@@ -52,7 +72,7 @@ def generate_gcode(
     def comp(pt: Tuple[float, float]) -> Tuple[float, float]:
         return off.compensate(*pt) if apply_offset else pt
 
-    g: List[str] = []
+    g: List[str] = list(_header(program, off, apply_offset))
     g.append("G54")           # work offset
     g.append("G21")           # millimetres
     g.append("G90")           # absolute
@@ -83,23 +103,54 @@ def _segment_lines(seg: Segment, program: Program, comp) -> List[str]:
     lines.append(f"G0 {_fmt_xy(*start)}")                       # rapid to start (safe Z)
     lines.append(f"G0 Z{program.retract:.4f}")                  # drop to retract height
     lines.append(f"G1 Z{seg.z:.4f} F{program.z_feed:.0f}")      # plunge to cut depth
-
-    if seg.type == SegmentType.LINE:
-        end = comp(seg.end)
-        lines.append(f"G1 {_fmt_xy(*end)} F{program.xy_feed:.0f}")
-    elif seg.type == SegmentType.ARC:
-        end = comp(seg.end)
-        center = comp(seg.center)
-        code = "G2" if seg.direction == ArcDirection.CW else "G3"
-        lines.append(f"{code} {_fmt_xy(*end)} {_arc_ij(start, center)} F{program.xy_feed:.0f}")
-    elif seg.type == SegmentType.CIRCLE:
-        center = comp(seg.center)
-        code = "G2" if seg.direction == ArcDirection.CW else "G3"
-        # Full circle: end == start, I/J point from start to center.
-        lines.append(f"{code} {_fmt_xy(*start)} {_arc_ij(start, center)} F{program.xy_feed:.0f}")
-
+    lines.extend(_cut_move(seg, program, comp, start))
     lines.append(f"G0 Z{program.retract:.4f}")                  # retract before next segment
     return lines
+
+
+def _cut_move(seg: Segment, program: Program, comp, start) -> List[str]:
+    """The single cutting move (line / arc / circle) for a segment."""
+    if seg.type == SegmentType.LINE:
+        end = comp(seg.end)
+        return [f"G1 {_fmt_xy(*end)} F{program.xy_feed:.0f}"]
+    code = "G2" if seg.direction == ArcDirection.CW else "G3"
+    if seg.type == SegmentType.ARC:
+        end = comp(seg.end)
+        center = comp(seg.center)
+        return [f"{code} {_fmt_xy(*end)} {_arc_ij(start, center)} F{program.xy_feed:.0f}"]
+    # CIRCLE: end == start, I/J from start to centre.
+    center = comp(seg.center)
+    return [f"{code} {_fmt_xy(*start)} {_arc_ij(start, center)} F{program.xy_feed:.0f}"]
+
+
+def dryrun_moves(
+    program: Program,
+    offset: CameraOffset | None,
+    apply_offset: bool,
+    safe_z: float,
+) -> List[str]:
+    """MDI moves that trace the path at a fixed safe Z (no plunge, no spindle).
+
+    Used by the two simulation dry-runs:
+
+    * camera-follow: ``apply_offset=False`` so the camera traces the taught line;
+    * spindle-path:  ``apply_offset=True``  so the spindle traces the real cut.
+
+    The tool never leaves ``safe_z``, so nothing touches the PCB.
+    """
+    program.validate()
+    off = offset or CameraOffset()
+
+    def comp(pt):
+        return off.compensate(*pt) if apply_offset else pt
+
+    moves: List[str] = ["G21", "G90", "G17", f"G0 Z{safe_z:.4f}"]
+    for seg in program.segments:
+        start = comp(seg.start)
+        moves.append(f"G0 {_fmt_xy(*start)}")
+        moves.extend(_cut_move(seg, program, comp, start))
+    moves.append(f"G0 Z{safe_z:.4f}")
+    return moves
 
 
 def write_gcode(program: Program, path: str, offset: CameraOffset | None = None,

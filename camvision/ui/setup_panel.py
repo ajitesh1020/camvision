@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -128,9 +129,10 @@ class SetupPanel(QGroupBox):
         self.inspect_z.setDecimals(3)
         self.inspect_z.setValue(self.config.inspect_z)
 
-        self.off_x.setToolTip("Camera-to-spindle X offset (mm): spindle X minus camera X. "
-                              "Subtracted from taught points so the tool cuts where the camera saw.")
-        self.off_y.setToolTip("Camera-to-spindle Y offset (mm): spindle Y minus camera Y.")
+        self.off_x.setToolTip("Camera→spindle X offset (mm) = camera-mark X minus spindle-mark X. "
+                              "Subtracted from taught points so the tool cuts where the camera saw. "
+                              "Use the Measure buttons below to set it (and its sign) correctly.")
+        self.off_y.setToolTip("Camera→spindle Y offset (mm) = camera-mark Y minus spindle-mark Y.")
         self.mm_per_px.setToolTip("Millimetres per camera pixel, from calibration. Used to scale "
                                   "the view and fiducial positions.")
         self.inspect_z.setToolTip("Machine Z the camera drops to when inspecting (before fixture "
@@ -144,7 +146,56 @@ class SetupPanel(QGroupBox):
         form.addRow("Offset Y (mm)", self.off_y)
         form.addRow("mm / pixel", self.mm_per_px)
         form.addRow("Inspect Z (machine mm)", self.inspect_z)
+
+        # Guided offset measurement — the reliable way to get the sign right.
+        self._cam_mark = None
+        self._spindle_mark = None
+        self.btn_mark_cam = QPushButton("1) Mark with camera")
+        self.btn_mark_cam.setToolTip("Jog so the CROSSHAIR sits on a distinct feature, then click. "
+                                     "Records the position with the camera over the feature.")
+        self.btn_mark_spindle = QPushButton("2) Mark with spindle")
+        self.btn_mark_spindle.setToolTip("Now jog so the SPINDLE TIP sits on the SAME feature, then "
+                                         "click. The offset (and its sign) is computed and saved.")
+        self.lbl_measure = QLabel("Offset unmeasured. Use 1) then 2) on the same feature.")
+        self.lbl_measure.setWordWrap(True)
+        self.btn_mark_cam.clicked.connect(self._mark_camera)
+        self.btn_mark_spindle.clicked.connect(self._mark_spindle)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.btn_mark_cam)
+        mrow.addWidget(self.btn_mark_spindle)
+        form.addRow(mrow)
+        form.addRow(self.lbl_measure)
         return box
+
+    def _mark_camera(self) -> None:
+        try:
+            x, y, _z = self.controller.work_position()
+        except Exception as exc:  # pragma: no cover
+            self.lbl_measure.setText(f"Could not read position: {exc}")
+            return
+        self._cam_mark = (x, y)
+        self.lbl_measure.setText(f"Camera mark: X{x:.3f} Y{y:.3f}. Now jog the spindle to the "
+                                 f"same feature and press 2).")
+
+    def _mark_spindle(self) -> None:
+        if self._cam_mark is None:
+            self.lbl_measure.setText("Do 1) Mark with camera first.")
+            return
+        try:
+            x, y, _z = self.controller.work_position()
+        except Exception as exc:  # pragma: no cover
+            self.lbl_measure.setText(f"Could not read position: {exc}")
+            return
+        self._spindle_mark = (x, y)
+        # gcode subtracts the stored offset, and offset = camera_mark - spindle_mark
+        # gives the correctly-signed value: cutting a taught point T yields
+        # T - (cam - spindle) = the true feature position.
+        ox = round(self._cam_mark[0] - x, 4)
+        oy = round(self._cam_mark[1] - y, 4)
+        self.off_x.setValue(ox)
+        self.off_y.setValue(oy)  # triggers _apply_offsets -> saves
+        self.lbl_measure.setText(f"Saved camera→spindle offset: X{ox:.3f} Y{oy:.3f} mm. "
+                                 f"Verify with the Spindle-path simulation before cutting.")
 
     # -- fiducial ---------------------------------------------------------
     def _fiducial_group(self) -> QGroupBox:

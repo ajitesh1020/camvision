@@ -36,8 +36,11 @@ def main(argv=None) -> int:
     from PyQt5.QtWidgets import QApplication  # imported here so --help etc. need no Qt
 
     from .ui.main_window import MainWindow
+    from .ui.widgets import WheelBlocker
 
     app = QApplication(argv)
+    app._wheel_blocker = WheelBlocker()          # keep a ref so it isn't GC'd
+    app.installEventFilter(app._wheel_blocker)   # spin/combo values won't scroll
     window = MainWindow(config_path)
     window.show()
     return app.exec_()

@@ -1,55 +1,55 @@
-# Verifying a program with Simulation
+# Verifying a program before you cut
 
-Simulation lets you **check a taught program before you cut** — it draws the real
-cutting path on the camera view and animates the tool along it, using the *same*
-geometry the exported G-code uses. What you see is what the spindle will do.
+CamVision has **two real-machine dry-runs** plus an on-screen preview. Every
+dry-run keeps Z at the **safe height**, so nothing ever touches the PCB — they
+only move XY so you can watch the path.
 
-## What the simulation shows
+## First: set the Safe Z
 
-- The **cyan path** is the actual cut line: every taught point with the
-  **camera-to-spindle offset applied** (so it's where the *spindle* goes, not
-  where the camera saw the line), for lines, arcs and circles.
-- The dashed lead-ins are the rapid moves between segments.
-- The **yellow marker** is the tool position as it animates along the path.
-- Z is not drawn: between segments the tool rides at the **safe height** and
-  plunges to each segment's cut depth — the panel reports the safe Z and depth.
+Jog Z to a height that clears the fixture, then press **Set Safe Z (here)** (under
+*Set X/Y Zero* on the jog side). Programs retract to this height and both dry-runs
+stay at it. This is the equivalent of the legacy "Z height" button.
 
-The path is scaled to fit the 640×480 view (it's a schematic of the toolpath, not
-an overlay registered to the live camera image).
+## The two simulation modes (Simulate tab)
 
-## Step by step
+### 1. Run: Camera-follow — checks the *teaching*
+Camera is deployed (down) and the machine traces the **taught** path (no offset)
+at the safe Z. Watch the **crosshair follow the cut line** on the actual PCB. If
+the crosshair rides along the lines you intended, the teaching is correct.
 
-1. **Teach a program** on the **Teach** tab: Capture Start → Add Line, and/or
-   3-Point Arc, and/or Add Circle. Set the Cut Z for each segment.
-2. Switch to the **Simulate** tab and press **Build**. The cyan path appears and
-   the info line reports the segment count, whether the offset is applied, and
-   the safe Z.
-3. Press **Play** to animate the tool, **Step** to advance one point at a time,
-   or **Reset** to clear and rewind.
-4. **Check it:** does the path match the cut lines you intended? Are the arcs
-   curving the right way (G2 vs G3)? Is the whole shape in the right place once
-   the offset is applied?
-5. When it looks right, go back to **Teach → Export G-code**, load the `.ngc` in
-   AXIS, and run it (run the fiducial cycle first if enabled).
+### 2. Run: Spindle-path — checks the *offset*
+Camera is retracted (up) and the machine traces the **offset-compensated** path at
+the safe Z, so the **spindle moves over exactly where it will cut**. Watch the
+spindle tip trace the intended cut lines. If it's shifted, the camera→spindle
+offset is wrong — measure it (below).
 
-## Tips
+**Preview** just draws the compensated path on the camera view (no motion) for a
+quick sanity check. Press **Stop** to abort a running dry-run.
 
-- Toggle **apply_spindle_offsets** (Setup) off/on and Build again to see the
-  offset's effect: with it on, the path shifts by the camera-to-spindle offset —
-  that shifted path is what actually gets cut.
-- If Build says "Nothing to simulate", the program has no segments yet — teach
-  at least one on the Teach tab.
-- The simulation never moves the machine; it is safe to run any time, even with
-  the spindle off or the machine not homed.
+## Fixing "the tool doesn't follow the exact path" (camera→spindle offset)
+
+The spindle sits a fixed distance from the camera. If that offset is wrong (or has
+the wrong sign), the whole cut lands to one side — you'll also see the **program's
+zero marker on the wrong side** in AXIS. Measure it properly:
+
+1. Setup tab → **Camera-to-spindle offset** section.
+2. Jog so the **crosshair** sits exactly on a distinct feature (a fiducial, a
+   drill hole, a corner) → click **1) Mark with camera**.
+3. Jog so the **spindle tip** sits on the **same** feature → click
+   **2) Mark with spindle**. The offset (with the correct sign) is computed and
+   saved automatically.
+4. Re-run **Spindle-path** simulation to confirm the spindle now traces the lines.
+
+The offset is stored as *camera-mark − spindle-mark* and subtracted from taught
+points, so after measuring, a taught point cuts exactly at the feature the camera
+saw. Keep **apply_spindle_offsets** (Setup) on for real cuts.
 
 ## Quick self-check (no hardware)
 
-You can prove the simulation pipeline works without a CNC or camera:
-
 ```bash
 cd ~/camvision
-QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_simulator.py tests/test_gui_smoke.py
+QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_gcode.py tests/test_simulator.py
 ```
 
-Both should pass — that exercises the flattening math and the Build→Play path
-through the real GUI (against the stub machine).
+This exercises the dry-run move generation (safe-Z, no plunge, offset per mode)
+and the path flattening the preview uses.

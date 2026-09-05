@@ -67,11 +67,11 @@ class MainWindow(QMainWindow):
 
     # -- construction -----------------------------------------------------
     def _build_ui(self) -> None:
-        # Everything lives inside a scroll area so the whole GUI stays reachable
-        # on any screen — if the window is shorter than the content, horizontal
-        # and vertical scroll bars appear instead of clipping the bottom.
-        inner = QWidget()
-        root = QHBoxLayout(inner)
+        # The main window itself does NOT scroll — the camera stays put so the
+        # mouse wheel over the video adjusts the centre circle, not the page.
+        # Only tall tab pages (Setup) scroll, inside their own scroll area.
+        central = QWidget()
+        root = QHBoxLayout(central)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(8)
 
@@ -89,11 +89,13 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.East)  # tabs on the right side
         self.teach_panel = TeachPanel(self.controller, self.config)
-        self.simulate_panel = SimulatePanel(self.teach_panel, self.camera_view, self.config)
+        self.simulate_panel = SimulatePanel(
+            self.teach_panel, self.camera_view, self.config, self.controller
+        )
         self.setup_panel = SetupPanel(self.controller, self.config, self.camera)
-        self.tabs.addTab(self.teach_panel, "Teach")
-        self.tabs.addTab(self.simulate_panel, "Simulate")
-        self.tabs.addTab(self.setup_panel, "Setup")
+        self.tabs.addTab(self._scrollable(self.teach_panel), "Teach")
+        self.tabs.addTab(self._scrollable(self.simulate_panel), "Simulate")
+        self.tabs.addTab(self._scrollable(self.setup_panel), "Setup")
         self.tabs.setToolTip("Teach a program, preview it in Simulate, and configure the "
                              "machine/camera in Setup.")
         left.addWidget(self.tabs, 1)
@@ -106,12 +108,7 @@ class MainWindow(QMainWindow):
         right.addStretch(1)
         root.addLayout(right)
 
-        scroll = QScrollArea()
-        scroll.setWidget(inner)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setCentralWidget(scroll)
+        self.setCentralWidget(central)
 
         # Notification bar: transient messages / LinuxCNC errors on the left,
         # live DRO + machine state pinned on the right.
@@ -135,8 +132,17 @@ class MainWindow(QMainWindow):
         self.resize(min(940, avail.width()), min(900, avail.height()))
         self.move(avail.x() + max(0, avail.width() - self.width()), avail.y())
 
+    @staticmethod
+    def _scrollable(widget) -> QScrollArea:
+        """Wrap a tab page so only that page scrolls (never the whole window)."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QScrollArea.NoFrame)
+        area.setWidget(widget)
+        return area
+
     def _machine_action_group(self) -> QWidget:
-        """Camera cylinder up/down + set work zero, stacked on the jog side."""
+        """Camera cylinder up/down + set work zero + set safe Z, on the jog side."""
         box = QGroupBox("Machine")
         col = QVBoxLayout(box)
         self.btn_cam_down = QPushButton("Camera ▼ Down")
@@ -148,12 +154,29 @@ class MainWindow(QMainWindow):
             "Set the current position as the G54 work zero (align the crosshair to "
             "the PCB edge first) — G10 L20 P0 X0 Y0."
         )
+        self.btn_set_safe_z = QPushButton("Set Safe Z (here)")
+        self.btn_set_safe_z.setToolTip(
+            "Record the current Z as the safe height. Programs retract to it, and "
+            "the simulation dry-runs stay at it so nothing touches the PCB."
+        )
         self.btn_cam_down.clicked.connect(lambda: self._machine_action(self.controller.camera_down))
         self.btn_cam_up.clicked.connect(lambda: self._machine_action(self.controller.camera_up))
         self.btn_set_zero.clicked.connect(lambda: self._machine_action(self.controller.set_work_zero_xy))
-        for b in (self.btn_cam_down, self.btn_cam_up, self.btn_set_zero):
+        self.btn_set_safe_z.clicked.connect(self._set_safe_z)
+        for b in (self.btn_cam_down, self.btn_cam_up, self.btn_set_zero, self.btn_set_safe_z):
             col.addWidget(b)
         return box
+
+    def _set_safe_z(self) -> None:
+        """Store the current work Z as the safe height (z_safe) used by programs/sim."""
+        try:
+            _x, _y, z = self.controller.work_position()
+        except Exception as exc:  # pragma: no cover
+            self._notify(f"Could not read Z: {exc}", "warn")
+            return
+        self.config.data["Gcode_Param"]["z_safe"] = round(float(z), 4)
+        self.config.save()
+        self._notify(f"Safe Z set to {z:.3f} mm.")
 
     def _machine_action(self, fn) -> None:
         """Run a machine command, first notifying if the machine isn't ready."""
