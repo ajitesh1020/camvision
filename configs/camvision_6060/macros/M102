@@ -1,4 +1,0 @@
-#!/bin/bash
-# M102 — fiducial-reset hook (pairs with M101). No-op in the in-GUI design;
-# kept so fiducial-enabled programs run unchanged.
-exit 0

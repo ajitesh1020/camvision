@@ -1,21 +1,34 @@
-# CamVision 6060 — auxiliary machine I/O (ported from the legacy config).
+# CamVision — auxiliary machine I/O snippet (paste into your own HAL).
 #
-# Loaded after camvision_6060.hal (see the INI [HAL] section). This is the
-# machine's hardware panel: an indicator light tower, external push buttons, the
-# ClassicLadder auto-home trigger and the safety-curtain interlock. The legacy
-# config drove some of these through a PyVCP panel too; CamVision has its own
-# GUI, so the PyVCP mirror pins (timer display, on-screen status/fixture LEDs)
-# are intentionally dropped — only the physical I/O is kept.
+# This is a ready-to-paste HAL fragment reproducing the legacy 6060 hardware
+# panel: an indicator light tower, external push buttons, the ClassicLadder
+# auto-home trigger and a safety-curtain interlock. It is NOT a full machine
+# config — add it AFTER your motion/spindle HAL (e.g. `source aux_io.hal` at the
+# end of your main .hal, or a second `HALFILE = aux_io.hal` in the INI), and make
+# sure `HALUI = halui` is set in your INI [HAL] section (these nets use halui.*).
 #
-# Physical wiring (unchanged from the legacy machine):
+# IMPORTANT — component loads:
+#   The `loadrt` lines below load the logic components this snippet needs. If your
+#   base config (e.g. a stepconf-generated one) already loads any of and2 / or2 /
+#   xor2 / not / toggle / toggle2nist / siggen / debounce / classicladder_rt,
+#   DELETE the duplicate `loadrt` here and instead raise that component's existing
+#   `count=` so the indices used below (and2 up to .9, or2 up to .4) exist. A
+#   double `loadrt` of the same component aborts HAL startup.
+#
+# Physical wiring (parallel ports "e100" = parport.0, "d100" = parport.1):
 #   parport.1 p11-in  external "home all" button   (active low)
 #   parport.1 p12-in  external pause/resume button (active low)
 #   parport.1 p10-in  external run/step button     (active low)
 #   parport.1 p13-in  external cycle-stop button   (active low)
 #   parport.0 p13-in  safety-curtain input         (active low)
-#   parport.1 p14-out RED lamp     parport.1 p08-out GREEN lamp   parport.1 p09-out AMBER lamp
+#   parport.1 p14-out RED lamp   parport.1 p08-out GREEN lamp   parport.1 p09-out AMBER lamp
+#
+# The camera pneumatic cylinder and safety-sensor OUTPUTS are core CamVision I/O,
+# not "aux", so they live in your main HAL — see docs/SETUP.md:
+#   net camera_up_down       <= motion.digital-out-00 => parport.1.pin-16-out   # M64/M65 P0
+#   net enable_safety_sensor <= motion.digital-out-01 => parport.1.pin-17-out   # M64/M65 P1
 
-# --- realtime components -------------------------------------------------
+# --- logic components (see note above about duplicate loadrt) ------------
 loadrt classicladder_rt numPhysInputs=15 numPhysOutputs=15 numS32in=10 numS32out=10 numFloatIn=10 numFloatOut=10
 loadrt debounce cfg=5
 loadrt and2 count=10
@@ -96,5 +109,5 @@ net saftey_curtain_in parport.0.pin-13-in-not => and2.9.in1
 net saftey_out        or2.4.in0 <= and2.9.out
 net toggle2nist_in    or2.4.in1 <= toggle2nist.0.on
 
-# --- ClassicLadder engine (no GUI; reload from AXIS if needed) -----------
+# --- ClassicLadder engine (no GUI; auto_home.clp must be in the config dir) --
 loadusr classicladder --nogui auto_home.clp

@@ -45,43 +45,42 @@ camvision/
   program/                   program model, G-code, .cvprog store, simulator
   ui/                        PyQt5 panels (camera view, jog, teach, simulate, setup)
   fiducial_cycle.py          in-GUI fiducial correction cycle
-configs/camvision_6060/      LinuxCNC .ini/.hal/macros + GUI launcher
+docs/SETUP.md                build-your-config guide (INI/HAL wiring, launch, first run)
+docs/hal/aux_io.hal          paste-ready aux-I/O HAL snippet (+ auto_home.clp)
 tests/                       pytest suite (runs headless, no CNC/camera needed)
 ```
 
+CamVision is the **GUI application only** — it does not ship a LinuxCNC machine
+config. You build one for your hardware; **[docs/SETUP.md](docs/SETUP.md)** walks
+through the INI/HAL wiring (including the camera-cylinder and aux-I/O pins), the
+launcher, and first-run calibration.
+
 ## Install (Debian 12 / LinuxCNC 2.9)
 
-Use the system packages on the machine:
+Use the system packages on the machine (they pair with LinuxCNC's bundled
+`linuxcnc`/`hal` modules), then clone the app:
 
 ```bash
 sudo apt-get install python3-pyqt5 python3-opencv python3-numpy
-```
-
-LinuxCNC provides the `linuxcnc` and `hal` Python modules. Clone this repo (e.g.
-to `~/camvision`) and symlink the config into your LinuxCNC configs:
-
-```bash
 git clone https://github.com/ajitesh1020/camvision.git ~/camvision
-ln -s ~/camvision/configs/camvision_6060 ~/linuxcnc/configs/camvision_6060
-chmod +x ~/camvision/configs/camvision_6060/launch_camvision.sh
-chmod +x ~/camvision/configs/camvision_6060/macros/M10*
+cd ~/camvision && QT_QPA_PLATFORM=offscreen python3 -m pytest -q   # sanity check
 ```
 
-Launch LinuxCNC and pick **camvision_6060**. AXIS opens and, a few seconds later,
-the CamVision window opens beside it (via the INI `[APPLICATIONS]` launcher).
+Then follow **[docs/SETUP.md](docs/SETUP.md)** to create your LinuxCNC config and
+launch CamVision beside AXIS.
 
 ## First-time setup
 
-1. **Home** the machine in AXIS.
-2. In CamVision **Setup**: set the camera `mm/pixel`, the **camera-to-spindle
-   offset** (X/Y, mm), the **inspect Z**, camera orientation, and (optionally)
-   fiducial params + enable. Everything saves to `config.json` in the config dir.
-3. Migrating from the old tool? Seed the config from your existing `config.json`:
-   ```python
-   from camvision.config import import_legacy_config
-   import_legacy_config("old/config.json", "configs/camvision_6060/config.json")
-   ```
-   Calibration, ROI and the measured offset carry over.
+Full steps are in **[docs/SETUP.md §7](docs/SETUP.md#7-first-run-setup-in-the-gui)**.
+In short: home the machine, then in CamVision **Setup** pin the camera device,
+set `mm/pixel`, the **camera-to-spindle offset** (X/Y), the **inspect Z**, and
+(optionally) the fiducial params. Everything saves to `config.json`. Migrating
+from the old tool? Seed it from your existing file:
+
+```python
+from camvision.config import import_legacy_config
+import_legacy_config("old/config.json", "my_6060/config.json")
+```
 
 ## Workflow
 
@@ -145,10 +144,10 @@ CI (`.github/workflows/ci.yml`) runs the same suite headless on each push.
 - Config I/O is centralised in one `ConfigManager` (was rewritten in ~15 places).
 - Jogging uses the native `linuxcnc.command.jog` (continuous + incremental)
   instead of a qtvcp dependency.
-- The machine `.ini`/`.hal` preserve every working pin/signal from the legacy
-  `6060_iCam_SPM` config. Core motion/spindle/camera wiring is in
-  `camvision_6060.hal`; the auxiliary machine I/O (indicator light tower,
+- No machine config is shipped — you build your own. `docs/SETUP.md` documents
+  the exact pins/nets from the legacy `6060_iCam_SPM` config: the core
+  motion/spindle wiring, the camera-cylinder and safety-sensor digital outputs,
+  and a paste-ready `docs/hal/aux_io.hal` snippet (indicator light tower,
   external pause/run/stop/home buttons, ClassicLadder auto-home via
-  `auto_home.clp`, and the safety-curtain interlock) is in `custom.hal`. The
-  PyVCP-panel display bits from the old config are dropped — CamVision's own GUI
-  replaces them.
+  `auto_home.clp`, safety-curtain interlock). The old PyVCP-panel display bits
+  are intentionally dropped — CamVision's own GUI replaces them.
