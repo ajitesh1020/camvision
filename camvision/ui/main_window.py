@@ -15,18 +15,21 @@ from __future__ import annotations
 
 import logging
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from .. import __version__
 from ..camera.service import CameraService
 from ..config import ConfigManager
 from ..fiducial_cycle import FiducialCycle
@@ -43,7 +46,7 @@ log = logging.getLogger("camvision.ui.main")
 class MainWindow(QMainWindow):
     def __init__(self, config_path: str):
         super().__init__()
-        self.setWindowTitle("CamVision — PCB Depaneling")
+        self.setWindowTitle(f"CamVision v{__version__} — PCB Depaneling")
 
         self.config = ConfigManager(config_path)
         self.controller = MachineController()
@@ -64,25 +67,27 @@ class MainWindow(QMainWindow):
 
     # -- construction -----------------------------------------------------
     def _build_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        # Everything lives inside a scroll area so the whole GUI stays reachable
+        # on any screen — if the window is shorter than the content, horizontal
+        # and vertical scroll bars appear instead of clipping the bottom.
+        inner = QWidget()
+        root = QHBoxLayout(inner)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(8)
 
         # Jog panel first so the camera view can share its Step selector.
         self.jog_panel = JogPanel(self.controller, self.config)
-        self.jog_panel.setFixedWidth(200)
+        self.jog_panel.setFixedWidth(210)
 
-        # -- left column: camera + action bar + tabs ----------------------
+        # -- left column: camera + tabs (tab bar on the RIGHT edge) --------
         left = QVBoxLayout()
         left.setSpacing(4)
         self.camera_view = CameraView(self.controller, self.config)
         self.camera_view.jog_step_getter = self.jog_panel.current_step
-        left.addWidget(self.camera_view)
-        left.addWidget(self._camera_action_bar())
+        left.addWidget(self.camera_view, 0, Qt.AlignHCenter)
 
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.East)  # tabs on the right side
         self.teach_panel = TeachPanel(self.controller, self.config)
         self.simulate_panel = SimulatePanel(self.teach_panel, self.camera_view, self.config)
         self.setup_panel = SetupPanel(self.controller, self.config, self.camera)
@@ -94,11 +99,19 @@ class MainWindow(QMainWindow):
         left.addWidget(self.tabs, 1)
         root.addLayout(left, 1)
 
-        # -- right column: jog -------------------------------------------
+        # -- right column: jog + camera/machine action buttons ------------
         right = QVBoxLayout()
         right.addWidget(self.jog_panel)
+        right.addWidget(self._machine_action_group())
         right.addStretch(1)
         root.addLayout(right)
+
+        scroll = QScrollArea()
+        scroll.setWidget(inner)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setCentralWidget(scroll)
 
         # Notification bar: transient messages / LinuxCNC errors on the left,
         # live DRO + machine state pinned on the right.
@@ -109,18 +122,23 @@ class MainWindow(QMainWindow):
         self.state_label = QLabel("")
         self.statusBar().addPermanentWidget(self.state_label)
         self.statusBar().addPermanentWidget(self.dro)
+        self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
         if self.controller.simulated:
             self.statusBar().addPermanentWidget(QLabel("SIMULATED"))
 
-        # Fit beside AXIS on a 1080p screen (leave room for the panel + taskbar).
-        self.resize(880, 900)
+        # Size to the screen so the window (and its status bar) always fit;
+        # the scroll area handles anything taller than this.
+        self._fit_to_screen()
 
-    def _camera_action_bar(self) -> QWidget:
-        """Thin bar under the camera: camera cylinder up/down + set work zero."""
-        bar = QWidget()
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(0, 0, 0, 0)
+    def _fit_to_screen(self) -> None:
+        avail = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(940, avail.width()), min(900, avail.height()))
+        self.move(avail.x() + max(0, avail.width() - self.width()), avail.y())
 
+    def _machine_action_group(self) -> QWidget:
+        """Camera cylinder up/down + set work zero, stacked on the jog side."""
+        box = QGroupBox("Machine")
+        col = QVBoxLayout(box)
         self.btn_cam_down = QPushButton("Camera ▼ Down")
         self.btn_cam_down.setToolTip("Deploy the camera (pneumatic cylinder down) to inspect — M64 P0.")
         self.btn_cam_up = QPushButton("Camera ▲ Up")
@@ -134,8 +152,8 @@ class MainWindow(QMainWindow):
         self.btn_cam_up.clicked.connect(lambda: self._machine_action(self.controller.camera_up))
         self.btn_set_zero.clicked.connect(lambda: self._machine_action(self.controller.set_work_zero_xy))
         for b in (self.btn_cam_down, self.btn_cam_up, self.btn_set_zero):
-            row.addWidget(b)
-        return bar
+            col.addWidget(b)
+        return box
 
     def _machine_action(self, fn) -> None:
         """Run a machine command, first notifying if the machine isn't ready."""

@@ -27,6 +27,9 @@ def main(argv=None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
+    from . import __version__
+
+    logging.getLogger("camvision").info("CamVision v%s starting", __version__)
     argv = list(sys.argv if argv is None else argv)
     config_path = argv[1] if len(argv) > 1 else default_config_path()
 
