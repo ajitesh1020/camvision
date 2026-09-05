@@ -93,6 +93,38 @@ the CamVision window opens beside it (via the INI `[APPLICATIONS]` launcher).
 4. **Export G-code** (`.ngc`) or **Save** the `.cvprog` to edit later.
 5. Load the `.ngc` in AXIS and run (optionally run the fiducial cycle first).
 
+## Troubleshooting: the camera "port" changes on its own
+
+A USB (UVC) camera opened by a bare index — `cv2.VideoCapture(3)` → `/dev/video3`
+— can move to a **different `/dev/videoN`** while running (often ~10–15 min in).
+The app didn't change the port; the **kernel re-enumerated the device**, usually
+because USB **autosuspend** powered it down and it came back on a new node. This
+was the legacy tool's biggest camera bug.
+
+CamVision fixes it two ways:
+
+1. **Pin a stable handle.** In **Setup → Stable handle**, click **Detect / pin
+   camera**: it finds the `/dev/v4l/by-id/usb-...-video-index0` symlink for your
+   selected index and stores that instead of the number. udev keeps that symlink
+   pointed at the *same physical camera* no matter which `/dev/videoN` it becomes,
+   so the feed never follows the wrong node. (No serial? Paste a
+   `/dev/v4l/by-path/...` handle, which is stable per USB port.)
+2. **Auto-reconnect.** If frames stop, the camera service releases, re-resolves
+   the handle (picking up the new node) and reopens automatically — you see
+   `RECONNECTING…` briefly instead of a frozen image.
+
+**Also fix the root cause** — stop the device suspending. Disable USB autosuspend
+for the camera (find its `ID_VENDOR:ID_PRODUCT` with `lsusb`):
+
+```bash
+# /etc/udev/rules.d/50-camvision-usb.rules  (replace 1a2b:3c4d with your camera)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a2b", ATTR{idProduct}=="3c4d", TEST=="power/control", ATTR{power/control}="on"
+```
+
+Then `sudo udevadm control --reload && sudo udevadm trigger`. (A blanket kernel
+option `usbcore.autosuspend=-1` also works but affects all USB devices.) List a
+camera's stable handles any time with `ls -l /dev/v4l/by-id/`.
+
 ## Development / tests
 
 Runs with no CNC and no camera — the machine layer falls back to stubs and the

@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -58,6 +59,12 @@ class SetupPanel(QGroupBox):
         self.device.setRange(0, 10)
         self.device.setValue(int(self.config.get("Camera_Settings", "video_input_port", 0)))
 
+        # Stable device handle (recommended). Empty => use the numeric port above.
+        self.device_handle = QLineEdit(self.config.get("Camera_Settings", "device", ""))
+        self.device_handle.setPlaceholderText("/dev/v4l/by-id/usb-...-video-index0  (recommended)")
+        self.btn_detect = QPushButton("Detect / pin camera")
+        self.btn_detect.clicked.connect(self._detect_camera)
+
         self.chk_crosshair = QCheckBox("Crosshair")
         self.chk_crosshair.setChecked(self.config.checkbox("enable_crosshair", True))
         self.chk_roi = QCheckBox("ROI")
@@ -69,13 +76,16 @@ class SetupPanel(QGroupBox):
         self.flip_y.stateChanged.connect(self._apply_camera)
         self.rotation.valueChanged.connect(self._apply_camera)
         self.device.valueChanged.connect(self._apply_camera)
+        self.device_handle.editingFinished.connect(self._apply_camera)
         for c in (self.chk_crosshair, self.chk_roi, self.chk_autodetect):
             c.stateChanged.connect(self._apply_overlays)
 
         form.addRow("Flip X", self.flip_x)
         form.addRow("Flip Y", self.flip_y)
         form.addRow("Rotation", self.rotation)
-        form.addRow("Video device", self.device)
+        form.addRow("Video device (index)", self.device)
+        form.addRow("Stable handle", self.device_handle)
+        form.addRow(self.btn_detect)
         overlays = QHBoxLayout()
         overlays.addWidget(self.chk_crosshair)
         overlays.addWidget(self.chk_roi)
@@ -164,11 +174,35 @@ class SetupPanel(QGroupBox):
         self.config.set("Camera_Settings", "flip_y", self.flip_y.isChecked())
         self.config.set("Camera_Settings", "rotation_angle", int(self.rotation.value()))
         self.config.set("Camera_Settings", "video_input_port", int(self.device.value()))
+        self.config.set("Camera_Settings", "device", self.device_handle.text().strip())
         if self.camera_service is not None:
             self.camera_service.flip_x = self.flip_x.isChecked()
             self.camera_service.flip_y = self.flip_y.isChecked()
             self.camera_service.rotation_angle = int(self.rotation.value())
+            # Live-update the device spec so the next (re)open uses it.
+            self.camera_service.device = self.config.camera_device_spec
         self.config.save()
+
+    def _detect_camera(self) -> None:
+        """List cameras and pin the current numeric port to its stable by-id handle."""
+        from ..camera.resolver import list_cameras, stable_handle_for_index
+
+        cams = list_cameras()
+        if not cams:
+            QMessageBox.information(self, "Cameras", "No /dev/video* devices found.")
+            return
+
+        lines = [c.label for c in cams]
+        pinned = stable_handle_for_index(int(self.device.value()))
+        if pinned:
+            self.device_handle.setText(pinned)
+            self._apply_camera()
+            msg = f"Pinned device index {self.device.value()} to a stable handle:\n{pinned}\n\n"
+        else:
+            msg = ("No /dev/v4l/by-id handle found for the selected index "
+                   "(the camera may not expose a serial). You can paste a "
+                   "/dev/v4l/by-path/... handle instead.\n\n")
+        QMessageBox.information(self, "Cameras detected", msg + "Available:\n" + "\n".join(lines))
 
     def _apply_overlays(self) -> None:
         self.config.set_checkbox("enable_crosshair", self.chk_crosshair.isChecked())

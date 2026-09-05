@@ -26,6 +26,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "flip_y": False,
         "rotation_angle": 0,
         "video_input_port": 0,
+        # Stable device handle (recommended): a /dev/v4l/by-id/... symlink, a
+        # device path, or a name/serial fragment. When non-empty it takes
+        # precedence over the volatile integer video_input_port, so the kernel
+        # renumbering /dev/videoN does not break the feed.
+        "device": "",
         "cam_on": True,
     },
     "Fiducials_Settings": {
@@ -123,6 +128,19 @@ class ConfigManager:
         self.data.setdefault(section, {})[key] = value
 
     # -- typed accessors --------------------------------------------------
+    @property
+    def camera_device_spec(self):
+        """The device to open: the stable ``device`` handle if set, else the int port.
+
+        Returns a string (path / by-id symlink / name fragment) when ``device``
+        is configured, otherwise the integer ``video_input_port`` for backward
+        compatibility.
+        """
+        device = self.data["Camera_Settings"].get("device", "")
+        if isinstance(device, str) and device.strip():
+            return device.strip()
+        return int(self.data["Camera_Settings"].get("video_input_port", 0))
+
     @property
     def camera_offset(self) -> CameraOffset:
         return CameraOffset.from_dict(self.data["Camera_offset"])

@@ -43,8 +43,7 @@ class MainWindow(QMainWindow):
         self.config = ConfigManager(config_path)
         self.controller = MachineController()
 
-        device = int(self.config.get("Camera_Settings", "video_input_port", 0))
-        self.camera = CameraService(device=device)
+        self.camera = CameraService(device=self.config.camera_device_spec)
         self.camera.flip_x = self.config.get("Camera_Settings", "flip_x", False)
         self.camera.flip_y = self.config.get("Camera_Settings", "flip_y", False)
         self.camera.rotation_angle = int(self.config.get("Camera_Settings", "rotation_angle", 0))
@@ -90,6 +89,7 @@ class MainWindow(QMainWindow):
     def _wire(self) -> None:
         self.camera.frame_ready.connect(self.camera_view.update_frame)
         self.camera.error.connect(self._show_status)
+        self.camera.reconnected.connect(self._show_status)
         self.camera_view.status.connect(self._show_status)
         self.camera_view.roi_selected.connect(self._on_roi)
 
