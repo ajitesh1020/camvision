@@ -39,11 +39,25 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path):
         teach = win.teach_panel
         teach.capture_start()          # stub work position (0,0)
         teach.add_line()               # line from (0,0) to (0,0)+current
-        assert len(teach.program.segments) == 1
+        # A second line so the flattened path has real length.
+        teach.program.add_line((0.0, 0.0), (10.0, 0.0), z=-1.0)
+        teach._rebuild_table()
+        assert len(teach.program.segments) == 2
 
-        # Simulation builds a polyline without raising.
-        win.simulate_panel.build()
-        assert win.simulate_panel._points  # flattened points exist
+        # Simulation: Build draws the path on the camera view, Step advances it.
+        sim = win.simulate_panel
+        sim.build()
+        assert sim._points                       # flattened path points exist
+        assert win.camera_view._sim_polylines    # path drawn on the view
+        sim.step()
+        assert win.camera_view._sim_marker is not None  # tool marker placed
+        sim.reset()
+        assert win.camera_view._sim_polylines == []     # cleared
+
+        # Notification bar reflects machine readiness (stub = ready).
+        assert win.controller.not_ready_reason() is None
+        win._notify("hello", "warn")
+        assert win.status.text() == "hello"
     finally:
         win.camera.stop()
         win.close()

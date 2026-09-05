@@ -33,6 +33,12 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
   GUI (it owns the camera — no shared memory), detecting two fiducials and
   applying a rotation with `G10 L2 P0 R`.
 - **Pneumatic camera cylinder** up/down (`M64/M65 P0`) and safety-sensor control.
+- **Notification bar**: a machine-not-ready reason when you press a button before
+  homing/power-on, plus LinuxCNC operator errors, with a live DRO and READY/NOT
+  READY state. CamVision **auto-closes when LinuxCNC exits**.
+
+See **[docs/SIMULATION.md](docs/SIMULATION.md)** for how to check a program before
+cutting.
 
 ## Layout
 

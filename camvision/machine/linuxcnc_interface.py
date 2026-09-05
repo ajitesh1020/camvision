@@ -52,6 +52,10 @@ class MachineController:
         self.linuxcnc, self.hal, self.simulated = _load_backends()
         self.stat = self.linuxcnc.stat()
         self.command = self.linuxcnc.command()
+        try:
+            self.error_channel = self.linuxcnc.error_channel()
+        except Exception:  # pragma: no cover - only if the API is unavailable
+            self.error_channel = None
         if self.simulated:
             log.warning("LinuxCNC not available — MachineController running in SIMULATED mode")
 
@@ -60,19 +64,63 @@ class MachineController:
         self.stat.poll()
         return self.stat
 
+    def alive(self) -> bool:
+        """True while the LinuxCNC status channel is reachable.
+
+        Returns False once LinuxCNC has shut down (the NML buffers go away and
+        ``stat.poll()`` raises). Always True in simulated mode.
+        """
+        if self.simulated:
+            return True
+        try:
+            self.stat.poll()
+            return True
+        except Exception:
+            return False
+
     def is_homed(self) -> bool:
         self.stat.poll()
         return self.stat.homed.count(1) >= self.stat.joints
 
     def ok_for_mdi(self) -> bool:
         """Ready to accept MDI: powered, out of e-stop, homed and interp idle."""
+        return self.not_ready_reason() is None
+
+    def not_ready_reason(self):
+        """Return a human message why the machine can't move, or None if it can.
+
+        Used to notify the operator when they press a button before homing /
+        powering on, instead of the command silently doing nothing.
+        """
         self.stat.poll()
-        return (
-            not self.stat.estop
-            and self.stat.enabled
-            and self.is_homed()
-            and self.stat.interp_state == self.linuxcnc.INTERP_IDLE
-        )
+        if self.stat.estop:
+            return "E-stop is active — release E-stop first."
+        if not self.stat.enabled:
+            return "Machine power is OFF — switch the machine on."
+        if self.stat.homed.count(1) < self.stat.joints:
+            return "Machine is not homed — Home All in AXIS first."
+        if self.stat.interp_state != self.linuxcnc.INTERP_IDLE:
+            return "Machine is busy — wait for the current motion to finish."
+        return None
+
+    def poll_error(self):
+        """Return the next LinuxCNC operator error/text message, or None.
+
+        Reads the shared NML error channel (the same one AXIS shows). Best effort:
+        returns None if the channel is unavailable or empty.
+        """
+        if self.error_channel is None:
+            return None
+        try:
+            msg = self.error_channel.poll()
+        except Exception:
+            return None
+        if not msg:
+            return None
+        # msg is (type, text); some builds return just text.
+        if isinstance(msg, tuple) and len(msg) == 2:
+            return str(msg[1])
+        return str(msg)
 
     # -- coordinates ------------------------------------------------------
     def machine_position(self) -> Tuple[float, float, float]:

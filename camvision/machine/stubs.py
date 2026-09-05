@@ -110,3 +110,14 @@ def get_value(pin):
 
 def set_p(pin, value):
     log.debug("stub hal.set_p(%s, %s)", pin, value)
+
+
+class _Error:
+    """Fake error channel that never has a message."""
+
+    def poll(self):
+        return None
+
+
+def error_channel():
+    return _Error()

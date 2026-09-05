@@ -32,7 +32,18 @@ class SimulatePanel(QGroupBox):
         self._timer.timeout.connect(self._advance)
 
         root = QVBoxLayout(self)
-        self.info = QLabel("Teach a program, then Build to preview the cut path.")
+        self.info = QLabel(
+            "How to check a program:\n"
+            "1. Teach segments on the Teach tab.\n"
+            "2. Here, press Build — the cyan path is the REAL cutting line\n"
+            "   (camera-to-spindle offset applied, Z at the safe height).\n"
+            "3. Press Play to run the yellow tool marker along it, or Step to\n"
+            "   advance one point. Confirm the path matches the PCB cut lines,\n"
+            "   then export G-code on the Teach tab and run it in AXIS."
+        )
+        self.info.setWordWrap(True)
+        self.info.setToolTip("The simulated path uses the same geometry as the exported G-code, "
+                             "so what you see here is what the spindle will cut.")
         root.addWidget(self.info)
 
         row = QHBoxLayout()

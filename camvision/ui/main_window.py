@@ -100,13 +100,20 @@ class MainWindow(QMainWindow):
         right.addStretch(1)
         root.addLayout(right)
 
-        self.status = QLabel()
-        self.statusBar().addWidget(self.status)
+        # Notification bar: transient messages / LinuxCNC errors on the left,
+        # live DRO + machine state pinned on the right.
+        self.status = QLabel("Ready.")
+        self.status.setToolTip("Notifications and LinuxCNC error messages appear here.")
+        self.statusBar().addWidget(self.status, 1)
+        self.dro = QLabel("")
+        self.state_label = QLabel("")
+        self.statusBar().addPermanentWidget(self.state_label)
+        self.statusBar().addPermanentWidget(self.dro)
         if self.controller.simulated:
-            self.statusBar().addPermanentWidget(QLabel("SIMULATED (no LinuxCNC)"))
+            self.statusBar().addPermanentWidget(QLabel("SIMULATED"))
 
-        # Fit beside AXIS without clipping on a 1080p screen.
-        self.resize(880, 1000)
+        # Fit beside AXIS on a 1080p screen (leave room for the panel + taskbar).
+        self.resize(880, 900)
 
     def _camera_action_bar(self) -> QWidget:
         """Thin bar under the camera: camera cylinder up/down + set work zero."""
@@ -131,9 +138,13 @@ class MainWindow(QMainWindow):
         return bar
 
     def _machine_action(self, fn) -> None:
-        ok = fn()
-        if ok is False:
-            self._show_status("Machine not ready (check power / homing / e-stop).")
+        """Run a machine command, first notifying if the machine isn't ready."""
+        reason = self.controller.not_ready_reason()
+        if reason:
+            self._notify(reason, "warn")
+            return
+        if fn() is False:
+            self._notify("Machine not ready (check power / homing / e-stop).", "warn")
 
     def _wire(self) -> None:
         self.camera.frame_ready.connect(self.camera_view.update_frame)
@@ -158,26 +169,68 @@ class MainWindow(QMainWindow):
         self.config.save()
 
     def _run_fiducial_cycle(self) -> None:
-        self._show_status("Running fiducial cycle…")
+        reason = self.controller.not_ready_reason()
+        if reason:
+            self._notify(reason, "warn")
+            return
+        self._notify("Running fiducial cycle…")
         cycle = FiducialCycle(
             self.controller, self.camera, self.config,
             pump_events=QApplication.processEvents,
         )
         angle = cycle.run()
         if angle is None:
-            self._show_status("Fiducial cycle: no correction applied.")
+            self._notify("Fiducial cycle: no correction applied.", "warn")
         else:
-            self._show_status(f"Fiducial cycle: applied {angle:.2f}° rotation.")
+            self._notify(f"Fiducial cycle: applied {angle:.2f}° rotation.")
 
     def _update_status(self) -> None:
+        # 1. Watchdog: if LinuxCNC has shut down, close CamVision too.
+        if not self.controller.alive():
+            self._linuxcnc_gone()
+            return
+
+        # 2. Live DRO + machine state.
         try:
             x, y, z = self.controller.work_position()
-            self.status.setText(f"Work X {x:8.3f}  Y {y:8.3f}  Z {z:8.3f} mm")
-        except Exception as exc:  # pragma: no cover
-            self.status.setText(f"status error: {exc}")
+            self.dro.setText(f"X {x:8.3f}  Y {y:8.3f}  Z {z:8.3f}")
+        except Exception:  # pragma: no cover
+            pass
+        reason = self.controller.not_ready_reason()
+        self.state_label.setText("NOT READY" if reason else "READY")
+        self.state_label.setStyleSheet("color:#c00;font-weight:bold;" if reason
+                                       else "color:#080;font-weight:bold;")
 
-    def _show_status(self, message: str) -> None:
+        # 3. Surface any LinuxCNC operator error (same channel AXIS reads).
+        err = self.controller.poll_error()
+        if err:
+            self._notify(err, "error")
+
+    # -- notifications ----------------------------------------------------
+    def _notify(self, message: str, level: str = "info") -> None:
+        """Show a message in the bottom bar; warnings/errors persist longer."""
+        colour = {"info": "#036", "warn": "#a60", "error": "#c00"}.get(level, "#036")
+        self.status.setStyleSheet(f"color:{colour};" + ("font-weight:bold;" if level != "info" else ""))
         self.status.setText(message)
+        # Auto-clear transient messages so the bar returns to "Ready.".
+        if not hasattr(self, "_clear_timer"):
+            self._clear_timer = QTimer(self)
+            self._clear_timer.setSingleShot(True)
+            self._clear_timer.timeout.connect(self._clear_notify)
+        self._clear_timer.start(8000 if level == "info" else 12000)
+
+    def _clear_notify(self) -> None:
+        self.status.setStyleSheet("")
+        self.status.setText("Ready.")
+
+    # kept for the camera/view signals that emit plain strings
+    def _show_status(self, message: str) -> None:
+        self._notify(message, "info")
+
+    def _linuxcnc_gone(self) -> None:
+        self._status_timer.stop()
+        log.warning("LinuxCNC connection lost — closing CamVision.")
+        self.close()
 
     # -- teardown ---------------------------------------------------------
     def closeEvent(self, event):  # noqa: N802
