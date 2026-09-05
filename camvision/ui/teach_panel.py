@@ -117,8 +117,12 @@ class TeachPanel(QGroupBox):
         # Table
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.setToolTip("Taught segments. Select a row and 'Delete Row' to remove it.")
-        root.addWidget(self.table)
+        self.table.setToolTip("Taught segments (5 rows shown; scroll for more). "
+                              "Select a row and 'Delete Row' to remove it.")
+        # Keep the table compact: show ~5 rows by default and scroll inside it for
+        # more, instead of stretching to consume the whole tab.
+        self._fit_table_height(5)
+        root.addWidget(self.table, 0)
 
         # File actions
         files = QHBoxLayout()
@@ -140,6 +144,15 @@ class TeachPanel(QGroupBox):
         self.btn_save.clicked.connect(self.save)
         self.btn_load.clicked.connect(self.load)
         self.btn_export.clicked.connect(self.export_gcode)
+
+    def _fit_table_height(self, rows: int) -> None:
+        """Fix the table viewport to ``rows`` rows; extra rows scroll inside it."""
+        header = self.table.horizontalHeader().sizeHint().height()
+        row_h = self.table.verticalHeader().defaultSectionSize()
+        scrollbar = self.table.horizontalScrollBar().sizeHint().height()
+        h = header + rows * row_h + 2 * self.table.frameWidth() + scrollbar
+        self.table.setMinimumHeight(h)
+        self.table.setMaximumHeight(h)
 
     # -- helpers ----------------------------------------------------------
     def _new_program(self) -> Program:
