@@ -1,10 +1,9 @@
 # CamVision 6060 — core HAL.
 #
 # Preserves the working motion, spindle and pneumatic wiring from the legacy
-# 6060_iCam_SPM config, trimmed to what CamVision needs. Auxiliary I/O from the
-# old machine (indicator light tower, external pause/run/stop buttons and the
-# ClassicLadder auto-home) is intentionally left out of this clean base; port it
-# from the legacy custom_postgui.hal / auto_home.clp if your machine uses it.
+# 6060_iCam_SPM config. Auxiliary machine I/O (indicator light tower, external
+# pause/run/stop/home buttons, ClassicLadder auto-home and the safety-curtain
+# interlock) lives in custom.hal, loaded next by the INI.
 #
 # Pin map (parallel port, two ports "e100" and "d100"):
 #   parport.0 p1  spindle PWM     p2/3 X step/dir   p4/5 Y step/dir  p6/7 Z step/dir

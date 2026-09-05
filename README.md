@@ -114,5 +114,9 @@ CI (`.github/workflows/ci.yml`) runs the same suite headless on each push.
 - Jogging uses the native `linuxcnc.command.jog` (continuous + incremental)
   instead of a qtvcp dependency.
 - The machine `.ini`/`.hal` preserve every working pin/signal from the legacy
-  `6060_iCam_SPM` config; auxiliary I/O (light tower, external buttons,
-  ClassicLadder auto-home) is documented for porting if your machine uses it.
+  `6060_iCam_SPM` config. Core motion/spindle/camera wiring is in
+  `camvision_6060.hal`; the auxiliary machine I/O (indicator light tower,
+  external pause/run/stop/home buttons, ClassicLadder auto-home via
+  `auto_home.clp`, and the safety-curtain interlock) is in `custom.hal`. The
+  PyVCP-panel display bits from the old config are dropped — CamVision's own GUI
+  replaces them.
