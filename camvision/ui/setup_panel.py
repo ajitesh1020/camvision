@@ -136,6 +136,19 @@ class SetupPanel(QGroupBox):
         )
         self.retract_z.valueChanged.connect(self._apply_gcode)
         form.addRow("Retract Z (mm)", self.retract_z)
+
+        self.simulation_feed = QDoubleSpinBox()
+        self.simulation_feed.setRange(1.0, 10000.0)
+        self.simulation_feed.setDecimals(0)
+        self.simulation_feed.setSingleStep(25.0)
+        self.simulation_feed.setSuffix(" mm/min")
+        self.simulation_feed.setValue(self.config.gcode_params()["simulation_feed"])
+        self.simulation_feed.setToolTip(
+            "Controlled XY speed used by both Camera Follow and Spindle Follow. "
+            "All simulation travel and path moves use this feed so motion can be observed."
+        )
+        self.simulation_feed.valueChanged.connect(self._apply_simulation_feed)
+        form.addRow("Simulation feed", self.simulation_feed)
         return box
 
     def _apply_arc_teaching(self) -> None:
@@ -331,6 +344,10 @@ class SetupPanel(QGroupBox):
         self.config.set("Gcode_Param", "retract", float(retract))
         self.config.save()
         self.retract_changed.emit(float(retract))
+
+    def _apply_simulation_feed(self, feed: float) -> None:
+        self.config.set("Gcode_Param", "simulation_feed", float(feed))
+        self.config.save()
 
     def _apply_fiducial(self) -> None:
         f = self.config.data["Fiducials_Settings"]

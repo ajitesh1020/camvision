@@ -26,9 +26,9 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
 - **Teach** linear cuts (capture start → add line), **arcs** (3-point capture →
   true G2/G3), and **full circles** (centre + radius). Programs carry a **name**
   and **operator**, save as editable `.cvprog`, and reload for editing.
-- **Real-time simulation** overlaid on the view, tracing the **actual cutting
-  path** — camera offset applied, Z at the safe height — from the same geometry
-  the G-code uses, so what you see is what gets cut.
+- **Real-machine Camera-follow and Spindle-path simulation** at safe Z, with a
+  configurable slow XY feed for observing both cut paths and travel moves, plus
+  an on-screen offset-compensated preview.
 - **Fiducial correction** (optional, toggle in Setup): runs entirely inside the
   GUI (it owns the camera — no shared memory), detecting two fiducials and
   applying a rotation with `G10 L2 P0 R`.

@@ -78,14 +78,16 @@ def test_fiducial_check_inserts_mcodes():
 def test_dryrun_stays_at_safe_z_no_plunge():
     p = _program()
     p.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)
-    moves = dryrun_moves(p, CameraOffset(100, 5), apply_offset=True, safe_z=25.0)
+    moves = dryrun_moves(p, CameraOffset(100, 5), apply_offset=True, safe_z=25.0,
+                         simulation_feed=150.0)
     # No spindle, no plunge (no Z below safe), no M-codes.
     assert all("M3" not in m and "M5" not in m for m in moves)
     zmoves = [m for m in moves if "Z" in m]
     assert zmoves and all("Z25.0000" in m for m in zmoves)
     # Offset applied to XY (camera_mark convention: subtract offset).
-    assert "G0 X-90.0000 Y15.0000" in moves
-    assert "G1 X-70.0000 Y15.0000 F600" in moves
+    assert "G1 X-90.0000 Y15.0000 F150" in moves
+    assert "G1 X-70.0000 Y15.0000 F150" in moves
+    assert not any(move.startswith("G0 X") for move in moves)
 
 
 def test_every_stored_segment_cuts_and_gaps_are_safe_rapids():
@@ -125,12 +127,13 @@ def test_dryrun_dwell_after_each_cut():
     p = _program()
     p.add_line((0.0, 0.0), (0.0, 10.0), z=-2.0)
     p.add_line((5.0, 0.0), (5.0, 10.0), z=-2.0)
-    moves = dryrun_moves(p, None, apply_offset=False, safe_z=25.0, dwell_s=2.0)
+    moves = dryrun_moves(p, None, apply_offset=False, safe_z=25.0, dwell_s=2.0,
+                         simulation_feed=120.0)
     # One dwell per cut, immediately after each cutting move.
     assert moves.count("G4 P2") == 2
-    for i, m in enumerate(moves):
-        if m.startswith("G1 X"):
-            assert moves[i + 1] == "G4 P2"
+    for cut in ("G1 X0.0000 Y10.0000 F120", "G1 X5.0000 Y10.0000 F120"):
+        i = moves.index(cut)
+        assert moves[i + 1] == "G4 P2"
     # No dwell when dwell_s is 0.
     plain = dryrun_moves(p, None, apply_offset=False, safe_z=25.0)
     assert not any(m.startswith("G4") for m in plain)
@@ -139,6 +142,7 @@ def test_dryrun_dwell_after_each_cut():
 def test_dryrun_camera_follow_has_no_offset():
     p = _program()
     p.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)
-    moves = dryrun_moves(p, CameraOffset(100, 5), apply_offset=False, safe_z=30.0)
-    assert "G0 X10.0000 Y20.0000" in moves
-    assert "G1 X30.0000 Y20.0000 F600" in moves
+    moves = dryrun_moves(p, CameraOffset(100, 5), apply_offset=False, safe_z=30.0,
+                         simulation_feed=90.0)
+    assert "G1 X10.0000 Y20.0000 F90" in moves
+    assert "G1 X30.0000 Y20.0000 F90" in moves

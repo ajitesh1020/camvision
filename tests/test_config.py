@@ -22,6 +22,7 @@ def test_defaults_and_typed_accessors(tmp_path):
     assert cm.gcode_params()["spindle_rpm"] == 24000.0
     assert cm.gcode_params()["retract"] == 10.0
     assert cm.gcode_params()["z_safe"] == 25.0
+    assert cm.gcode_params()["simulation_feed"] == 200.0
     assert cm.get("Program_Settings", "program_name") == ""
     assert cm.get("Program_Settings", "operator") == ""
     assert cm.get("Program_Settings", "last_directory") == ""
@@ -36,6 +37,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     cm.set("Gcode_Param", "retract", 7.5)
     cm.set("Gcode_Param", "z_safe", 55.0)
     cm.set("Gcode_Param", "tool_dia", 1.5)
+    cm.set("Gcode_Param", "simulation_feed", 175.0)
     cm.set("Program_Settings", "program_name", "Panel A")
     cm.set("Program_Settings", "operator", "Operator 1")
     cm.set("Program_Settings", "last_directory", "/programs")
@@ -48,6 +50,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert cm2.gcode_params()["retract"] == 7.5
     assert cm2.gcode_params()["z_safe"] == 55.0
     assert cm2.gcode_params()["tool_dia"] == 1.5
+    assert cm2.gcode_params()["simulation_feed"] == 175.0
     assert cm2.get("Program_Settings", "program_name") == "Panel A"
     assert cm2.get("Program_Settings", "operator") == "Operator 1"
     assert cm2.get("Program_Settings", "last_directory") == "/programs"
@@ -62,5 +65,6 @@ def test_legacy_import_preserves_values(tmp_path):
     assert cm.camera_offset.x == 109.448
     assert abs(cm.mm_per_pixel - 0.08192319205190404) < 1e-12
     assert cm.gcode_params()["depth"] == -2.0
+    assert cm.gcode_params()["simulation_feed"] == 200.0
     # Missing legacy keys are filled from defaults, not lost.
     assert "Fiducials_Settings" in cm.data

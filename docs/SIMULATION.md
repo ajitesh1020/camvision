@@ -10,6 +10,14 @@ Jog Z to a height that clears the fixture, then press **Set Safe Z (here)** (und
 *Set X/Y Zero* on the jog side). Programs retract to this height and both dry-runs
 stay at it. This is the equivalent of the legacy "Z height" button.
 
+## Set a visible simulation speed
+
+In **Setup → G-code**, set **Simulation feed** in mm/min. Camera-follow and
+Spindle-path use this one speed for every XY move, including travel between
+separate cuts. Simulation XY moves are controlled `G1` feed moves rather than
+rapid `G0` moves, making the full route easy to observe. This setting affects
+only simulation; it does not change the feed rates in exported cutting G-code.
+
 ## The two simulation modes (Simulate tab)
 
 ### 1. Run: Camera-follow — checks the *teaching*
@@ -51,5 +59,5 @@ cd ~/camvision
 QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_gcode.py tests/test_simulator.py
 ```
 
-This exercises the dry-run move generation (safe-Z, no plunge, offset per mode)
-and the path flattening the preview uses.
+This exercises the dry-run move generation (safe-Z, no plunge, controlled feed,
+offset per mode) and the path flattening the preview uses.

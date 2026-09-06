@@ -121,19 +121,21 @@ def _segment_lines(seg: Segment, program: Program, comp) -> List[str]:
     return lines
 
 
-def _cut_move(seg: Segment, program: Program, comp, start) -> List[str]:
+def _cut_move(seg: Segment, program: Program, comp, start,
+              feed: float | None = None) -> List[str]:
     """The single cutting move (line / arc / circle) for a segment."""
+    xy_feed = program.xy_feed if feed is None else feed
     if seg.type == SegmentType.LINE:
         end = comp(seg.end)
-        return [f"G1 {_fmt_xy(*end)} F{program.xy_feed:.0f}"]
+        return [f"G1 {_fmt_xy(*end)} F{xy_feed:.0f}"]
     code = "G2" if seg.direction == ArcDirection.CW else "G3"
     if seg.type == SegmentType.ARC:
         end = comp(seg.end)
         center = comp(seg.center)
-        return [f"{code} {_fmt_xy(*end)} {_arc_ij(start, center)} F{program.xy_feed:.0f}"]
+        return [f"{code} {_fmt_xy(*end)} {_arc_ij(start, center)} F{xy_feed:.0f}"]
     # CIRCLE: end == start, I/J from start to centre.
     center = comp(seg.center)
-    return [f"{code} {_fmt_xy(*start)} {_arc_ij(start, center)} F{program.xy_feed:.0f}"]
+    return [f"{code} {_fmt_xy(*start)} {_arc_ij(start, center)} F{xy_feed:.0f}"]
 
 
 def dryrun_moves(
@@ -142,21 +144,26 @@ def dryrun_moves(
     apply_offset: bool,
     safe_z: float,
     dwell_s: float = 0.0,
+    simulation_feed: float | None = None,
 ) -> List[str]:
-    """MDI moves that trace the path at a fixed safe Z (no plunge, no spindle).
+    """Moves that trace the path at a fixed safe Z (no plunge, no spindle).
 
     Used by the two simulation dry-runs:
 
     * camera-follow: ``apply_offset=False`` so the camera traces the taught line;
     * spindle-path:  ``apply_offset=True``  so the spindle traces the real cut.
 
-    The tool never leaves ``safe_z``, so nothing touches the PCB. When ``dwell_s``
-    is set, the tool pauses that many seconds at the end of each cut so the
-    operator can view each point (it also marks where one cut ends and the next
-    rapid begins, standing in for the Z-lift of a real cut).
+    The tool never leaves ``safe_z``, so nothing touches the PCB. Every XY move,
+    including travel to the next segment, is a controlled feed move at
+    ``simulation_feed`` so the operator can see it. When ``dwell_s`` is set, the
+    tool pauses that many seconds at the end of each cut. If no simulation feed
+    is supplied, the program XY feed is used for backward compatibility.
     """
     program.validate()
     off = offset or CameraOffset()
+    trace_feed = program.xy_feed if simulation_feed is None else float(simulation_feed)
+    if trace_feed <= 0:
+        raise ValueError("Simulation feed must be greater than zero")
 
     def comp(pt):
         return off.compensate(*pt) if apply_offset else pt
@@ -164,8 +171,8 @@ def dryrun_moves(
     moves: List[str] = ["G21", "G90", "G17", f"G0 Z{safe_z:.4f}"]
     for seg in program.segments:
         start = comp(seg.start)
-        moves.append(f"G0 {_fmt_xy(*start)}")
-        moves.extend(_cut_move(seg, program, comp, start))
+        moves.append(f"G1 {_fmt_xy(*start)} F{trace_feed:.0f}")
+        moves.extend(_cut_move(seg, program, comp, start, feed=trace_feed))
         if dwell_s > 0:
             moves.append(f"G4 P{dwell_s:g}")          # pause to view this cut
     moves.append(f"G0 Z{safe_z:.4f}")

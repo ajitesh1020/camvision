@@ -59,6 +59,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "tool_dia": "0.5",
         "z_feed": "800",
         "xy_feed": "600",
+        # Shared controlled XY speed for Camera Follow and Spindle Follow.
+        # Simulation uses feed moves instead of G0 so the path is visible.
+        "simulation_feed": "200",
     },
     "Program_Settings": {
         "program_name": "",
@@ -220,6 +223,7 @@ class ConfigManager:
             "tool_dia": float(g["tool_dia"]),
             "z_feed": float(g["z_feed"]),
             "xy_feed": float(g["xy_feed"]),
+            "simulation_feed": float(g["simulation_feed"]),
         }
 
     def checkbox(self, name: str, default: bool = False) -> bool:

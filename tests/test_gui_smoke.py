@@ -141,6 +141,10 @@ def test_safe_z_move_and_retract_setting_are_independent(qapp, tmp_path, monkeyp
         assert win.config.gcode_params()["retract"] == 6.25
         assert win.teach_panel.program.retract == 6.25
 
+        # One persisted feed controls all XY motion in both dry-run modes.
+        win.setup_panel.simulation_feed.setValue(175.0)
+        assert win.config.gcode_params()["simulation_feed"] == 175.0
+
         # Capturing a new Safe Z must not overwrite the independent retract value.
         monkeypatch.setattr(win.controller, "work_position", lambda: (1.0, 2.0, 57.75))
         win._set_safe_z()

@@ -50,6 +50,7 @@ class SimulatePanel(QGroupBox):
         self.info = QLabel(
             "Verify a program before cutting (all dry-runs stay at the safe Z):\n"
             "• Set Safe Z first (button under Set X/Y Zero).\n"
+            "• Set Simulation feed in Setup > G-code to control all XY motion.\n"
             "• Run: Camera-follow — camera down, follows the TAUGHT path so the\n"
             "  crosshair traces the cut line on the PCB (checks teaching).\n"
             "• Run: Spindle-path — camera up, follows the OFFSET-compensated path\n"
@@ -63,10 +64,12 @@ class SimulatePanel(QGroupBox):
         run_row = QHBoxLayout()
         self.btn_cam_follow = QPushButton("Run: Camera-follow")
         self.btn_cam_follow.setToolTip("Camera down; trace the taught path at safe Z so the "
-                                       "crosshair follows the cut line. Verifies teaching.")
+                                       "crosshair follows the cut line at the configured "
+                                       "Simulation feed. Verifies teaching.")
         self.btn_spindle = QPushButton("Run: Spindle-path")
         self.btn_spindle.setToolTip("Camera up; trace the offset-compensated path at safe Z so "
-                                    "the spindle moves where it will cut. Verifies the offset.")
+                                    "the spindle moves where it will cut at the configured "
+                                    "Simulation feed. Verifies the offset.")
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setToolTip("Abort the running dry-run.")
         for b in (self.btn_cam_follow, self.btn_spindle, self.btn_stop):

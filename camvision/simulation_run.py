@@ -53,15 +53,20 @@ class SimulationRunner:
             pass
         self.status("Simulation aborted.")
 
-    def _write_program(self, mode: str, safe_z: float) -> str:
+    def _write_program(self, mode: str, safe_z: float, simulation_feed: float) -> str:
         apply_offset = (mode == SPINDLE_PATH)
         # Camera down to watch the path (follow); up to show the spindle path.
         cam = "M64 P0" if mode == CAMERA_FOLLOW else "M65 P0"
         # Pause at each point in camera-follow so the operator can view every cut.
         dwell = VIEW_DWELL_S if mode == CAMERA_FOLLOW else 0.0
         moves = dryrun_moves(self.program, self.config.camera_offset, apply_offset,
-                             safe_z, dwell_s=dwell)
-        lines: List[str] = [f"( CamVision dry-run: {mode} — safe Z {safe_z:.3f} )", cam]
+                             safe_z, dwell_s=dwell,
+                             simulation_feed=simulation_feed)
+        lines: List[str] = [
+            f"( CamVision dry-run: {mode} — safe Z {safe_z:.3f} — "
+            f"XY feed {simulation_feed:.0f} mm/min )",
+            cam,
+        ]
         lines += moves
         lines.append("M2")
         fd, path = tempfile.mkstemp(prefix="camvision_sim_", suffix=".ngc")
@@ -77,10 +82,13 @@ class SimulationRunner:
         if reason:
             return reason
 
-        safe_z = self.config.gcode_params()["z_safe"]
-        path = self._write_program(mode, safe_z)
+        params = self.config.gcode_params()
+        safe_z = params["z_safe"]
+        simulation_feed = params["simulation_feed"]
+        path = self._write_program(mode, safe_z, simulation_feed)
         if not self.controller.run_program_file(path):
             return "Machine did not start the dry-run (not ready?)."
-        self.status(f"Dry-run ({mode}) running in AUTO — stays at safe Z {safe_z:.2f} mm. "
+        self.status(f"Dry-run ({mode}) running at {simulation_feed:.0f} mm/min — "
+                    f"stays at safe Z {safe_z:.2f} mm. "
                     f"Reload your program in AXIS afterwards.")
         return None
