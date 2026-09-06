@@ -4,8 +4,9 @@ Faithfully reproduces the legacy program skeleton (see
 ``cam_align/cam_jog.py::generate_gcode``) and extends it with arc (G2/G3) and
 full-circle support. The camera-to-spindle offset is applied here so the spindle
 cuts exactly where the camera taught the line; Z rides at the safe height between
-cuts and plunges per segment. A header comment block records the operator, the
-creation time, the segment/point counts and the program extents.
+independent cutting segments and plunges for every segment. A header comment
+block records the operator, tool diameter, creation time, and the
+segment/point counts and the program extents.
 
 Pure function of the model + offset — no Qt, no LinuxCNC — so it is unit-tested
 directly (``tests/test_gcode.py``).
@@ -46,6 +47,7 @@ def _header(program: Program, off: CameraOffset, apply_offset: bool) -> List[str
         f"( Size mm: {max_x - min_x:.3f} x {max_y - min_y:.3f} )",
         f"( Camera->spindle offset applied: {'yes' if apply_offset else 'no'}"
         f"  X{off.x:.3f} Y{off.y:.3f} )",
+        f"( Tool diameter: {program.tool_dia:.3f} mm )",
     ]
 
 
@@ -85,6 +87,9 @@ def generate_gcode(
     g.append(f"M3 S{program.spindle_rpm:.0f}")
     g.append("G04 P3")        # dwell for spindle to reach speed
 
+    # Every stored segment is an intentional cut. Any gap between one segment's
+    # end and the next segment's start is implicit non-cutting travel: the first
+    # cut retracts to Safe Z and the next segment begins with an XY rapid.
     for seg in program.segments:
         g.extend(_segment_lines(seg, program, comp))
 

@@ -21,6 +21,7 @@ def test_linear_program_structure_and_offset():
     assert any(ln.startswith("( CamVision program:") for ln in g)
     assert any(ln.startswith("( Operator:") for ln in g)
     assert any(ln.startswith("( Segments:") for ln in g)
+    assert "( Tool diameter: 0.500 mm )" in g
     assert "G54" in g
     assert "G21" in g and "G90" in g and "G17" in g
     assert g[-1] == "M30"
@@ -87,24 +88,37 @@ def test_dryrun_stays_at_safe_z_no_plunge():
     assert "G1 X-70.0000 Y15.0000 F600" in moves
 
 
-def test_retract_to_safe_after_every_cut():
-    p = _program()  # z_safe=25, retract=10
-    p.add_line((0.0, 0.0), (0.0, 10.0), z=-2.0)
-    p.add_line((50.0, 0.0), (50.0, 10.0), z=-2.0)
+def test_every_stored_segment_cuts_and_gaps_are_safe_rapids():
+    p = _program()
+    p.z_safe = 60.0035
+    p.add_line((14.9621, 27.6899), (14.9621, 32.9853), z=-3.0)
+    p.add_line((14.9621, 59.5783), (14.9621, 64.2937), z=-3.0)
+    p.add_line((11.8765, 79.8087), (11.8765, 84.7039), z=-3.0)
     g = generate_gcode(p, apply_offset=False)
 
-    # Camera is retracted before cutting.
-    assert "M65 P0" in g
-    # Each of the two cutting moves is immediately followed by a retract to safe Z.
-    cut_idxs = [i for i, ln in enumerate(g) if ln.startswith("G1 X")]
-    assert len(cut_idxs) == 2
-    for i in cut_idxs:
-        assert g[i + 1] == "G0 Z25.0000"
-    # The rapid to a start is preceded by the previous cut's retract to safe Z.
-    idx = g.index("G0 X50.0000 Y0.0000")
-    assert g[idx - 1] == "G0 Z25.0000"
-    # Approach descends to the retract clearance before each plunge.
-    assert g.count("G0 Z10.0000") == 2
+    first = g.index("G0 X14.9621 Y27.6899")
+    assert g[first:first + 15] == [
+        "G0 X14.9621 Y27.6899",
+        "G0 Z10.0000",
+        "G1 Z-3.0000 F800",
+        "G1 X14.9621 Y32.9853 F600",
+        "G0 Z60.0035",
+        "G0 X14.9621 Y59.5783",
+        "G0 Z10.0000",
+        "G1 Z-3.0000 F800",
+        "G1 X14.9621 Y64.2937 F600",
+        "G0 Z60.0035",
+        "G0 X11.8765 Y79.8087",
+        "G0 Z10.0000",
+        "G1 Z-3.0000 F800",
+        "G1 X11.8765 Y84.7039 F600",
+        "G0 Z60.0035",
+    ]
+    # The gaps are never emitted as feed moves at cutting depth.
+    assert "G1 X14.9621 Y59.5783 F600" not in g
+    assert "G1 X11.8765 Y79.8087 F600" not in g
+    assert g.count("G0 Z10.0000") == 3
+    assert g.count("G1 Z-3.0000 F800") == 3
 
 
 def test_dryrun_dwell_after_each_cut():

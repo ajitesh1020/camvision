@@ -18,6 +18,7 @@ import logging
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
+    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -101,10 +102,12 @@ class MainWindow(QMainWindow):
         left.addWidget(self.tabs, 1)
         root.addLayout(left, 1)
 
-        # -- right column: jog + camera/machine action buttons ------------
+        # -- right column: jog + grouped machine/tool actions -------------
         right = QVBoxLayout()
         right.addWidget(self.jog_panel)
-        right.addWidget(self._machine_action_group())
+        right.addWidget(self._camera_action_group())
+        right.addWidget(self._work_action_group())
+        right.addWidget(self._cutting_tool_group())
         right.addStretch(1)
         root.addLayout(right)
 
@@ -141,14 +144,30 @@ class MainWindow(QMainWindow):
         area.setWidget(widget)
         return area
 
-    def _machine_action_group(self) -> QWidget:
-        """Camera cylinder up/down + set work zero + set safe Z, on the jog side."""
-        box = QGroupBox("Machine")
+    def _camera_action_group(self) -> QWidget:
+        """Camera deployment and camera-to-spindle verification."""
+        box = QGroupBox("Camera / Spindle")
         col = QVBoxLayout(box)
         self.btn_cam_down = QPushButton("Camera ▼ Down")
         self.btn_cam_down.setToolTip("Deploy the camera (pneumatic cylinder down) to inspect — M64 P0.")
         self.btn_cam_up = QPushButton("Camera ▲ Up")
         self.btn_cam_up.setToolTip("Retract the camera (cylinder up) for cutting — M65 P0.")
+        self.btn_check_spindle = QPushButton("Check Spindle Position")
+        self.btn_check_spindle.setToolTip(
+            "With the camera crosshair on a feature, move to Safe Z, retract the "
+            "camera, and rapid the spindle over the same feature using the saved offset."
+        )
+        self.btn_cam_down.clicked.connect(lambda: self._machine_action(self.controller.camera_down))
+        self.btn_cam_up.clicked.connect(lambda: self._machine_action(self.controller.camera_up))
+        self.btn_check_spindle.clicked.connect(self._check_spindle_position)
+        for button in (self.btn_cam_down, self.btn_cam_up, self.btn_check_spindle):
+            col.addWidget(button)
+        return box
+
+    def _work_action_group(self) -> QWidget:
+        """Work-coordinate and Z-height setup actions."""
+        box = QGroupBox("Work Setup")
+        col = QVBoxLayout(box)
         self.btn_set_zero = QPushButton("Set X/Y Zero")
         self.btn_set_zero.setToolTip(
             "Set the current position as the G54 work zero (align the crosshair to "
@@ -156,16 +175,57 @@ class MainWindow(QMainWindow):
         )
         self.btn_set_safe_z = QPushButton("Set Safe Z (here)")
         self.btn_set_safe_z.setToolTip(
-            "Record the current Z as the safe height. Programs retract to it, and "
-            "the simulation dry-runs stay at it so nothing touches the PCB."
+            "Record the current Z as the safe travel height. The tool returns here "
+            "between cuts; the separate Retract Z setting controls pre-plunge clearance."
         )
-        self.btn_cam_down.clicked.connect(lambda: self._machine_action(self.controller.camera_down))
-        self.btn_cam_up.clicked.connect(lambda: self._machine_action(self.controller.camera_up))
+        self.btn_go_safe_z = QPushButton("Go to Safe Z")
+        self.btn_go_safe_z.setToolTip(
+            "Rapid only the Z axis to the saved Safe Z before teaching with the camera."
+        )
         self.btn_set_zero.clicked.connect(lambda: self._machine_action(self.controller.set_work_zero_xy))
         self.btn_set_safe_z.clicked.connect(self._set_safe_z)
-        for b in (self.btn_cam_down, self.btn_cam_up, self.btn_set_zero, self.btn_set_safe_z):
-            col.addWidget(b)
+        self.btn_go_safe_z.clicked.connect(self._go_to_safe_z)
+        for button in (self.btn_set_zero, self.btn_set_safe_z, self.btn_go_safe_z):
+            col.addWidget(button)
         return box
+
+    def _cutting_tool_group(self) -> QWidget:
+        """Editable cutting-tool diameter used by the overlay and G-code."""
+        box = QGroupBox("Cutting Tool")
+        row = QHBoxLayout(box)
+        row.addWidget(QLabel("Diameter"))
+        self.tool_dia = QDoubleSpinBox()
+        self.tool_dia.setRange(0.05, 100.0)
+        self.tool_dia.setDecimals(3)
+        self.tool_dia.setSingleStep(0.1)
+        self.tool_dia.setSuffix(" mm")
+        self.tool_dia.setValue(self.config.gcode_params()["tool_dia"])
+        self.tool_dia.setToolTip(
+            "Select with the arrows or type the installed cutting-tool diameter. "
+            "The camera centre circle and exported G-code comment update together."
+        )
+        self.tool_dia.valueChanged.connect(self._apply_tool_diameter)
+        row.addWidget(self.tool_dia)
+        return box
+
+    def _apply_tool_diameter(self, diameter: float) -> None:
+        self.config.set("Gcode_Param", "tool_dia", float(diameter))
+        self.config.save()
+        self.teach_panel.set_tool_diameter(diameter)
+        self.camera_view.set_tool_diameter(diameter)
+        self._notify(f"Cutting tool diameter set to {diameter:.3f} mm.")
+
+    def _sync_tool_diameter_from_program(self) -> None:
+        """Reflect a loaded program's tool diameter in the control and overlay."""
+        diameter = float(self.teach_panel.program.tool_dia)
+        if abs(self.tool_dia.value() - diameter) > 1e-9:
+            self.tool_dia.blockSignals(True)
+            self.tool_dia.setValue(diameter)
+            self.tool_dia.blockSignals(False)
+        if abs(self.config.gcode_params()["tool_dia"] - diameter) > 1e-9:
+            self.config.set("Gcode_Param", "tool_dia", diameter)
+            self.config.save()
+        self.camera_view.set_tool_diameter(diameter)
 
     def _set_safe_z(self) -> None:
         """Store the current work Z as the safe height (z_safe) used by programs/sim."""
@@ -176,7 +236,47 @@ class MainWindow(QMainWindow):
             return
         self.config.data["Gcode_Param"]["z_safe"] = round(float(z), 4)
         self.config.save()
+        self.teach_panel.set_safe_z(z)
         self._notify(f"Safe Z set to {z:.3f} mm.")
+
+    def _go_to_safe_z(self) -> None:
+        """Rapid Z to the saved Safe Z while preserving the current X/Y position."""
+        reason = self.controller.not_ready_reason()
+        if reason:
+            self._notify(reason, "warn")
+            return
+        safe_z = self.config.gcode_params()["z_safe"]
+        if self.controller.mdi(f"G0 Z{safe_z:.4f}"):
+            self._notify(f"Moved to Safe Z {safe_z:.3f} mm.")
+        else:
+            self._notify("Could not move to Safe Z.", "warn")
+
+    def _check_spindle_position(self) -> None:
+        """Move the spindle over the feature currently under the camera crosshair."""
+        reason = self.controller.not_ready_reason()
+        if reason:
+            self._notify(reason, "warn")
+            return
+        try:
+            camera_x, camera_y, _z = self.controller.work_position()
+        except Exception as exc:  # pragma: no cover
+            self._notify(f"Could not read camera position: {exc}", "warn")
+            return
+
+        target_x, target_y = self.config.camera_offset.compensate(camera_x, camera_y)
+        safe_z = self.config.gcode_params()["z_safe"]
+        if not self.controller.mdi(f"G0 Z{safe_z:.4f}"):
+            self._notify("Could not move to Safe Z.", "warn")
+            return
+        if not self.controller.camera_up():
+            self._notify("Could not retract the camera.", "warn")
+            return
+        if not self.controller.move_work_xy(target_x, target_y):
+            self._notify("Could not move the spindle to the camera position.", "warn")
+            return
+        self._notify(
+            f"Spindle check position: X{target_x:.3f} Y{target_y:.3f} at Safe Z."
+        )
 
     def _machine_action(self, fn) -> None:
         """Run a machine command, first notifying if the machine isn't ready."""
@@ -198,6 +298,11 @@ class MainWindow(QMainWindow):
         self.setup_panel.request_fiducial_cycle.connect(self._run_fiducial_cycle)
         self.setup_panel.overlays_changed.connect(self._apply_overlays)
         self.setup_panel.arc_teaching_changed.connect(self.teach_panel.set_arc_teaching_visible)
+        self.setup_panel.retract_changed.connect(self.teach_panel.set_retract)
+        self.setup_panel.calibration_changed.connect(
+            lambda: self.camera_view.set_tool_diameter(self.tool_dia.value())
+        )
+        self.teach_panel.program_changed.connect(self._sync_tool_diameter_from_program)
         self._apply_overlays()
 
     # -- slots ------------------------------------------------------------

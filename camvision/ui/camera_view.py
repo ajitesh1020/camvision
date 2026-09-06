@@ -64,6 +64,7 @@ class CameraView(QLabel):
         self.show_crosshair = True
         self.show_roi = True
         self.center_circle_diameter = 30
+        self.set_tool_diameter(self.config.gcode_params()["tool_dia"])
 
         # ROI drawing state
         self._roi_mode = False
@@ -261,7 +262,16 @@ class CameraView(QLabel):
         self._jogging_axes = []
         self.status.emit("Jog stopped.")
 
-    def wheelEvent(self, event):  # noqa: N802 — mouse wheel resizes the centre circle
-        delta = event.angleDelta().y()
-        self.center_circle_diameter = max(10, min(500, self.center_circle_diameter + (2 if delta > 0 else -2)))
+    def set_tool_diameter(self, diameter_mm: float) -> None:
+        """Size the centre circle to the physical cutting-tool diameter."""
+        mm_per_pixel = self.config.mm_per_pixel
+        if mm_per_pixel <= 0:
+            return
+        diameter_px = round(float(diameter_mm) / mm_per_pixel)
+        self.center_circle_diameter = max(2, min(500, diameter_px))
         self.update()
+
+    def wheelEvent(self, event):  # noqa: N802
+        # The centre circle is controlled by Cutting Tool diameter so it cannot
+        # silently drift away from the value written into the G-code header.
+        event.ignore()

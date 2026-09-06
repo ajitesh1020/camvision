@@ -60,6 +60,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "z_feed": "800",
         "xy_feed": "600",
     },
+    "Program_Settings": {
+        "program_name": "",
+        "operator": "",
+        "last_directory": "",
+    },
     "Pixel_to_mm_Data": {
         "pixels_per_mm": 0.08192319205190404,  # legacy key name; value is mm/pixel
         "actual_distance_mm": "10.0",
