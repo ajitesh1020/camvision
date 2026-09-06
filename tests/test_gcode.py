@@ -107,6 +107,21 @@ def test_retract_to_safe_after_every_cut():
     assert g.count("G0 Z10.0000") == 2
 
 
+def test_dryrun_dwell_after_each_cut():
+    p = _program()
+    p.add_line((0.0, 0.0), (0.0, 10.0), z=-2.0)
+    p.add_line((5.0, 0.0), (5.0, 10.0), z=-2.0)
+    moves = dryrun_moves(p, None, apply_offset=False, safe_z=25.0, dwell_s=2.0)
+    # One dwell per cut, immediately after each cutting move.
+    assert moves.count("G4 P2") == 2
+    for i, m in enumerate(moves):
+        if m.startswith("G1 X"):
+            assert moves[i + 1] == "G4 P2"
+    # No dwell when dwell_s is 0.
+    plain = dryrun_moves(p, None, apply_offset=False, safe_z=25.0)
+    assert not any(m.startswith("G4") for m in plain)
+
+
 def test_dryrun_camera_follow_has_no_offset():
     p = _program()
     p.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)

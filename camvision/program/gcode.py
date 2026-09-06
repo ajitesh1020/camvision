@@ -136,6 +136,7 @@ def dryrun_moves(
     offset: CameraOffset | None,
     apply_offset: bool,
     safe_z: float,
+    dwell_s: float = 0.0,
 ) -> List[str]:
     """MDI moves that trace the path at a fixed safe Z (no plunge, no spindle).
 
@@ -144,7 +145,10 @@ def dryrun_moves(
     * camera-follow: ``apply_offset=False`` so the camera traces the taught line;
     * spindle-path:  ``apply_offset=True``  so the spindle traces the real cut.
 
-    The tool never leaves ``safe_z``, so nothing touches the PCB.
+    The tool never leaves ``safe_z``, so nothing touches the PCB. When ``dwell_s``
+    is set, the tool pauses that many seconds at the end of each cut so the
+    operator can view each point (it also marks where one cut ends and the next
+    rapid begins, standing in for the Z-lift of a real cut).
     """
     program.validate()
     off = offset or CameraOffset()
@@ -157,6 +161,8 @@ def dryrun_moves(
         start = comp(seg.start)
         moves.append(f"G0 {_fmt_xy(*start)}")
         moves.extend(_cut_move(seg, program, comp, start))
+        if dwell_s > 0:
+            moves.append(f"G4 P{dwell_s:g}")          # pause to view this cut
     moves.append(f"G0 Z{safe_z:.4f}")
     return moves
 

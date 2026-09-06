@@ -32,6 +32,9 @@ log = logging.getLogger("camvision.simrun")
 CAMERA_FOLLOW = "camera"
 SPINDLE_PATH = "spindle"
 
+# Pause (seconds) at the end of each cut so the operator can view the point.
+VIEW_DWELL_S = 2.0
+
 
 class SimulationRunner:
     def __init__(self, controller, config, program,
@@ -54,7 +57,10 @@ class SimulationRunner:
         apply_offset = (mode == SPINDLE_PATH)
         # Camera down to watch the path (follow); up to show the spindle path.
         cam = "M64 P0" if mode == CAMERA_FOLLOW else "M65 P0"
-        moves = dryrun_moves(self.program, self.config.camera_offset, apply_offset, safe_z)
+        # Pause at each point in camera-follow so the operator can view every cut.
+        dwell = VIEW_DWELL_S if mode == CAMERA_FOLLOW else 0.0
+        moves = dryrun_moves(self.program, self.config.camera_offset, apply_offset,
+                             safe_z, dwell_s=dwell)
         lines: List[str] = [f"( CamVision dry-run: {mode} — safe Z {safe_z:.3f} )", cam]
         lines += moves
         lines.append("M2")
