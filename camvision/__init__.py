@@ -6,4 +6,4 @@ dependency so it runs and is unit-tested on any machine; the ``ui``, ``camera``
 and ``machine`` layers add the hardware- and Qt-facing pieces.
 """
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"

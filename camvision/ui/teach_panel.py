@@ -102,9 +102,9 @@ class TeachPanel(QGroupBox):
         caps = QHBoxLayout()
         self.btn_point = QPushButton("Add Point")
         self.btn_point.setToolTip(
-            "Jog to a position and click. The FIRST click sets the path start; each "
-            "later click adds a straight cut from the previous point to here. Just "
-            "keep jogging and clicking Add Point for a multi-point path."
+            "Capture one cut: click at the cut START, jog, then click at the cut END. "
+            "Each start→end pair is a separate cut; the move to the next cut's start "
+            "is a rapid (not a cut)."
         )
         self.btn_arc = QPushButton("3-Point Arc")
         self.btn_arc.setToolTip("Capture three points (start, a point on the arc, end); the arc "
@@ -211,22 +211,27 @@ class TeachPanel(QGroupBox):
 
     # -- capture ----------------------------------------------------------
     def add_point(self) -> None:
-        """Chain straight cuts: first click sets the start, each next adds a line."""
+        """Capture one cut as a START then an END pair (no chaining between cuts).
+
+        Click 1 records the cut START, click 2 the cut END and adds the line.
+        The move from one cut's end to the next cut's start is a rapid, not a cut,
+        so only the taught start→end pairs are cutting moves.
+        """
         p = self._current_xy()
         if self._last_point is None:
             self._last_point = p
             self.arc_status.setText(
-                f"Start point set at {p[0]:.3f}, {p[1]:.3f}. Jog to the next point "
-                f"and click Add Point again."
+                f"Cut START at {p[0]:.3f}, {p[1]:.3f}. Jog to the cut END and click "
+                f"Add Point again."
             )
             return
         self.program.add_line(self._last_point, p, self.depth_spin.value())
-        self._last_point = p
+        self._last_point = None  # reset — the next cut is a fresh start/end pair
         self._append_row(self.program.segments[-1])
-        self.arc_status.setText(f"Line added to {p[0]:.3f}, {p[1]:.3f}. Add Point for the next.")
+        self.arc_status.setText("Cut added. Click Add Point for the START of the next cut.")
         self._emit_changed()
 
-    # Kept for compatibility / tests: explicit start + line.
+    # Kept for compatibility / tests: explicit start + end.
     def capture_start(self) -> None:
         self._last_point = self._current_xy()
 
@@ -248,7 +253,7 @@ class TeachPanel(QGroupBox):
             direction = arc_direction_from_three_points(p1, p2, p3)
             self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
             self._arc_points = []
-            self._last_point = p3  # continue the chain from the arc end
+            self._last_point = None  # each cut is a fresh start/end; no chaining
             self.arc_status.setText("Arc added.")
             self._append_row(self.program.segments[-1])
             self._emit_changed()
@@ -384,8 +389,7 @@ class TeachPanel(QGroupBox):
         self.name_edit.setText(self.program.program_name)
         self.operator_edit.setText(self.program.operator)
         self.depth_spin.setValue(self.program.depth)
-        # Continue the Add-Point chain from the last taught point.
-        self._last_point = self.program.segments[-1].end if self.program.segments else None
+        self._last_point = None  # next Add Point starts a fresh cut
         self._rebuild_table()
         self._emit_changed()
 
