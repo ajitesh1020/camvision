@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
@@ -59,6 +60,7 @@ class TeachPanel(QGroupBox):
 
         self._start: Optional[Tuple[float, float]] = None
         self._last_point: Optional[Tuple[float, float]] = None
+        self._insert_start: Optional[Tuple[float, float]] = None
         self._arc_points: List[Tuple[float, float]] = []
 
         root = QVBoxLayout(self)
@@ -134,9 +136,9 @@ class TeachPanel(QGroupBox):
         edit = QHBoxLayout()
         self.btn_insert = QPushButton("Insert Point (here)")
         self.btn_insert.setToolTip(
-            "Insert the current position as a new cutting point right after the "
-            "selected row, reconnecting the following segment — for adding a point "
-            "in the middle of a saved program."
+            "Insert a new line after the selected row. Click once at the START "
+            "point, jog, then click again at the END point. The inserted row is "
+            "highlighted green."
         )
         self.btn_goto = QPushButton("Move to Selected")
         self.btn_goto.setToolTip("Rapid the machine to the selected row's start point (safe Z first).")
@@ -259,23 +261,32 @@ class TeachPanel(QGroupBox):
 
     # -- row editing ------------------------------------------------------
     def insert_point(self) -> None:
-        """Insert the current position as a cutting point after the selected row."""
+        """Insert a new LINE (its own start + end) after the selected row.
+
+        Two-step: the first click captures the START, the second the END. The
+        inserted row is highlighted so the added segment stands out.
+        """
         i = self.table.currentRow()
         if i < 0 or i >= len(self.program.segments):
             QMessageBox.information(self, "Select a row",
-                                    "Select the row to insert the new point after.")
+                                    "Select the row to insert the new line after.")
             return
         p = self._current_xy()
-        anchor = self.program.segments[i].end or self.program.segments[i].start
-        new_seg = Segment(type=SegmentType.LINE, start=anchor, end=p, z=self.depth_spin.value())
+        if self._insert_start is None:
+            self._insert_start = p
+            self.arc_status.setText(
+                f"Insert: START captured at {p[0]:.3f}, {p[1]:.3f}. Jog to the END "
+                f"point and click Insert Point again."
+            )
+            return
+        new_seg = Segment(type=SegmentType.LINE, start=self._insert_start, end=p,
+                          z=self.depth_spin.value())
+        new_seg._highlight = True  # transient (not saved) — colours the new row
         self.program.segments.insert(i + 1, new_seg)
-        # Reconnect the following line so the path stays continuous.
-        if i + 2 < len(self.program.segments):
-            nxt = self.program.segments[i + 2]
-            if nxt.type == SegmentType.LINE:
-                nxt.start = p
+        self._insert_start = None
         self._rebuild_table()
         self.table.selectRow(i + 1)
+        self.arc_status.setText("Inserted new line (highlighted).")
         self._emit_changed()
 
     def move_to_selected(self) -> None:
@@ -317,6 +328,14 @@ class TeachPanel(QGroupBox):
         cell(8, seg.direction.value)
         cell(9, f"{seg.z:.3f}")
 
+        # Colour inserted rows so the newly added segment stands out.
+        if getattr(seg, "_highlight", False):
+            colour = QColor(198, 239, 206)  # light green
+            for col in range(self.table.columnCount()):
+                item = self.table.item(r, col)
+                if item is not None:
+                    item.setBackground(colour)
+
     def _rebuild_table(self) -> None:
         self.table.setRowCount(0)
         for seg in self.program.segments:
@@ -336,6 +355,7 @@ class TeachPanel(QGroupBox):
         self.operator_edit.clear()
         self._start = None
         self._last_point = None
+        self._insert_start = None
         self._arc_points = []
         self.arc_status.setText("Click Add Point to set the start of the path.")
         self.table.setRowCount(0)

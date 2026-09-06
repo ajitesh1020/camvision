@@ -44,10 +44,12 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path):
         teach._rebuild_table()
         assert len(teach.program.segments) == 2
 
-        # Insert a point after the first row keeps the path connected.
+        # Insert a line after the first row: two clicks (start, end), highlighted.
         teach.table.selectRow(0)
-        teach.insert_point()
+        teach.insert_point()           # captures start
+        teach.insert_point()           # captures end, inserts
         assert len(teach.program.segments) == 3
+        assert getattr(teach.program.segments[1], "_highlight", False) is True
 
         # Arc-teaching visibility toggle does not crash.
         teach.set_arc_teaching_visible(True)
