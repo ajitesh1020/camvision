@@ -1,0 +1,7 @@
+# Runtime dependencies for the CamVision GUI.
+# On a LinuxCNC Debian 12 machine, prefer the system packages
+# (python3-pyqt5, python3-opencv, python3-numpy) plus LinuxCNC's bundled
+# `linuxcnc` and `hal` modules. These pins are for pip-based dev boxes / CI.
+numpy>=1.24
+opencv-python>=4.8
+PyQt5>=5.15

@@ -1,0 +1,113 @@
+# CamVision — auxiliary machine I/O snippet (paste into your own HAL).
+#
+# This is a ready-to-paste HAL fragment reproducing the legacy 6060 hardware
+# panel: an indicator light tower, external push buttons, the ClassicLadder
+# auto-home trigger and a safety-curtain interlock. It is NOT a full machine
+# config — add it AFTER your motion/spindle HAL (e.g. `source aux_io.hal` at the
+# end of your main .hal, or a second `HALFILE = aux_io.hal` in the INI), and make
+# sure `HALUI = halui` is set in your INI [HAL] section (these nets use halui.*).
+#
+# IMPORTANT — component loads:
+#   The `loadrt` lines below load the logic components this snippet needs. If your
+#   base config (e.g. a stepconf-generated one) already loads any of and2 / or2 /
+#   xor2 / not / toggle / toggle2nist / siggen / debounce / classicladder_rt,
+#   DELETE the duplicate `loadrt` here and instead raise that component's existing
+#   `count=` so the indices used below (and2 up to .9, or2 up to .4) exist. A
+#   double `loadrt` of the same component aborts HAL startup.
+#
+# Physical wiring (parallel ports "e100" = parport.0, "d100" = parport.1):
+#   parport.1 p11-in  external "home all" button   (active low)
+#   parport.1 p12-in  external pause/resume button (active low)
+#   parport.1 p10-in  external run/step button     (active low)
+#   parport.1 p13-in  external cycle-stop button   (active low)
+#   parport.0 p13-in  safety-curtain input         (active low)
+#   parport.1 p14-out RED lamp   parport.1 p08-out GREEN lamp   parport.1 p09-out AMBER lamp
+#
+# The camera pneumatic cylinder and safety-sensor OUTPUTS are core CamVision I/O,
+# not "aux", so they live in your main HAL — see docs/SETUP.md:
+#   net camera_up_down       <= motion.digital-out-00 => parport.1.pin-16-out   # M64/M65 P0
+#   net enable_safety_sensor <= motion.digital-out-01 => parport.1.pin-17-out   # M64/M65 P1
+
+# --- logic components (see note above about duplicate loadrt) ------------
+loadrt classicladder_rt numPhysInputs=15 numPhysOutputs=15 numS32in=10 numS32out=10 numFloatIn=10 numFloatOut=10
+loadrt debounce cfg=5
+loadrt and2 count=10
+loadrt or2 count=5
+loadrt xor2 count=1
+loadrt not count=1
+loadrt toggle count=1
+loadrt toggle2nist count=1
+loadrt siggen num_chan=1
+
+addf debounce.0            base-thread
+addf and2.0               servo-thread
+addf and2.1               servo-thread
+addf and2.2               servo-thread
+addf and2.3               servo-thread
+addf and2.4               servo-thread
+addf and2.5               servo-thread
+addf and2.9               servo-thread
+addf or2.0                servo-thread
+addf or2.1                servo-thread
+addf or2.3                servo-thread
+addf or2.4                servo-thread
+addf xor2.0               servo-thread
+addf not.0                servo-thread
+addf toggle.0             servo-thread
+addf toggle2nist.0        servo-thread
+addf siggen.0.update      servo-thread
+addf classicladder.0.refresh servo-thread
+
+setp debounce.0.delay 200
+setp siggen.0.frequency 2
+
+# --- external "home all" button + ClassicLadder auto-home ---------------
+net button_home_all_external parport.1.pin-11-in-not => debounce.0.1.in
+net home_button_or or2.0.in1 <= debounce.0.1.out
+net dout_home       motion.digital-out-05 => classicladder.0.in-00
+net cl_out_or1      or2.0.in0 <= classicladder.0.out-00
+net ladder_home     halui.mode.joint halui.home-all <= or2.0.out
+
+# --- external pause / resume button -------------------------------------
+net pause_resume_debounce debounce.0.2.in <= parport.1.pin-12-in-not
+net pause-resume-btn and2.0.in0 and2.1.in0 <= debounce.0.2.out
+net pause-on   toggle2nist.0.is-on <= and2.0.in1 <= and2.3.in1 <= and2.5.in1 <= halui.program.is-paused
+net run-on     and2.1.in1 <= xor2.0.in0 <= and2.9.in0 <= halui.program.is-running
+net pause-sig  or2.1.in0 <= and2.0.out
+net resume-sig or2.1.in1 <= and2.1.out
+net toggle-ok  toggle.0.in <= or2.1.out
+net togglesig  toggle2nist.0.in <= toggle.0.out
+net toggleon   halui.program.pause  <= or2.4.out
+net toggleoff  halui.program.resume <= toggle2nist.0.off
+
+# --- external run / step button -----------------------------------------
+net run_step_debounce debounce.0.3.in <= parport.1.pin-10-in-not
+net run-step-btn and2.2.in0 and2.3.in0 <= debounce.0.3.out
+net idle-on      and2.2.in1 <= and2.4.in1 <= halui.program.is-idle
+net run-sig      halui.mode.auto halui.program.run <= and2.2.out
+net step-sig     halui.program.step <= and2.3.out
+
+# --- external cycle-stop button -----------------------------------------
+net cycle_stop_in parport.1.pin-13-in-not => debounce.0.4.in
+net cycle_stop    debounce.0.4.out => halui.program.stop
+
+# --- indicator light tower (RED / GREEN / AMBER) ------------------------
+# Red: on when e-stopped or machine off.
+net estop-out_lamp halui.estop.is-activated => or2.3.in0
+net machine_on     not.0.out => or2.3.in1
+net red_ind_out    or2.3.out => parport.1.pin-14-out
+# Green: flashes while a program is running.
+net flash       siggen.0.clock => and2.5.in0
+net green-flash and2.5.out => xor2.0.in1
+net green-on    xor2.0.out => parport.1.pin-08-out
+# Amber: on when the machine is powered and idle.
+net yellow-in1  halui.machine.is-on => and2.4.in0 not.0.in
+net yellow-out  and2.4.out => parport.1.pin-09-out
+
+# --- safety-curtain interlock (pauses a running program) ----------------
+net saftey_curtain_in parport.0.pin-13-in-not => and2.9.in1
+net saftey_out        or2.4.in0 <= and2.9.out
+net toggle2nist_in    or2.4.in1 <= toggle2nist.0.on
+
+# --- ClassicLadder engine (no GUI; auto_home.clp must be in the config dir) --
+loadusr classicladder --nogui auto_home.clp
