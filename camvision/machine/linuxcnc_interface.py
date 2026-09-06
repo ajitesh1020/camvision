@@ -224,5 +224,8 @@ class MachineController:
         self.command.mode(self.linuxcnc.MODE_AUTO)
         self.command.wait_complete()
         self.command.program_open(path)
-        self.command.auto(self.linuxcnc.AUTO_RUN)
+        self.command.wait_complete()
+        # AUTO_RUN requires the start line (0 = from the top); the single-arg form
+        # raises "Unexpected argument '0' to command.auto".
+        self.command.auto(self.linuxcnc.AUTO_RUN, 0)
         return True
