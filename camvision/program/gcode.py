@@ -84,8 +84,10 @@ def generate_gcode(
     g.append(f"M3 S{program.spindle_rpm:.0f}")
     g.append("G04 P3")        # dwell for spindle to reach speed
 
+    prev_end = None
     for seg in program.segments:
-        g.extend(_segment_lines(seg, program, comp))
+        g.extend(_segment_lines(seg, program, comp, prev_end))
+        prev_end = comp(seg.end) if seg.end else prev_end
 
     g.append(f"G0 Z{program.z_safe:.4f}")
     g.append("G28")           # return to home
@@ -96,15 +98,28 @@ def generate_gcode(
     return g
 
 
-def _segment_lines(seg: Segment, program: Program, comp) -> List[str]:
-    """Emit the moves for one segment: rapid to start, plunge, cut, retract."""
+def _segment_lines(seg: Segment, program: Program, comp, prev_end) -> List[str]:
+    """Moves for one segment: (travel at safe Z if needed) → plunge → cut → retract.
+
+    When this segment's start is not where the previous cut ended (a travel move
+    to a separate cut path), the tool first lifts to the **safe Z** and rapids
+    across at that height, so long cross-moves clear the fixture instead of
+    travelling at the low retract height. Continuous points (start == previous
+    end) skip the lift. Every cut still ends with a retract.
+    """
     lines: List[str] = []
     start = comp(seg.start)
-    lines.append(f"G0 {_fmt_xy(*start)}")                       # rapid to start (safe Z)
+    # A travel move is one to a start that isn't where the previous cut ended.
+    # The first segment isn't a travel — we're already at safe Z from the preamble.
+    is_travel = prev_end is not None and (abs(start[0] - prev_end[0]) > 1e-4
+                                          or abs(start[1] - prev_end[1]) > 1e-4)
+    if is_travel:
+        lines.append(f"G0 Z{program.z_safe:.4f}")               # lift clear for the travel
+    lines.append(f"G0 {_fmt_xy(*start)}")                       # rapid to start
     lines.append(f"G0 Z{program.retract:.4f}")                  # drop to retract height
     lines.append(f"G1 Z{seg.z:.4f} F{program.z_feed:.0f}")      # plunge to cut depth
     lines.extend(_cut_move(seg, program, comp, start))
-    lines.append(f"G0 Z{program.retract:.4f}")                  # retract before next segment
+    lines.append(f"G0 Z{program.retract:.4f}")                  # retract after the cut
     return lines
 
 

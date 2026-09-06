@@ -87,6 +87,29 @@ def test_dryrun_stays_at_safe_z_no_plunge():
     assert "G1 X-70.0000 Y15.0000 F600" in moves
 
 
+def test_travel_between_paths_lifts_to_safe_z():
+    p = _program()  # z_safe=25, retract=10
+    # Two separate cuts: seg2 does not continue from seg1's end -> travel move.
+    p.add_line((0.0, 0.0), (0.0, 10.0), z=-2.0)
+    p.add_line((50.0, 0.0), (50.0, 10.0), z=-2.0)
+    g = generate_gcode(p, apply_offset=False)
+
+    # The rapid to seg2's start must be preceded by a lift to the safe Z.
+    idx = g.index("G0 X50.0000 Y0.0000")
+    assert g[idx - 1] == "G0 Z25.0000"
+    # And each cut is still followed by a retract.
+    assert g.count("G0 Z10.0000") >= 2
+
+
+def test_continuous_points_do_not_lift_between():
+    p = _program()
+    p.add_line((0.0, 0.0), (0.0, 10.0), z=-2.0)
+    p.add_line((0.0, 10.0), (0.0, 20.0), z=-2.0)  # continues from seg1 end
+    g = generate_gcode(p, apply_offset=False)
+    # seg2 start equals seg1 end -> no safe-Z lift, only one initial safe lift.
+    assert g.count("G0 Z25.0000") == 2  # one at start of first seg, one at very end
+
+
 def test_dryrun_camera_follow_has_no_offset():
     p = _program()
     p.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)

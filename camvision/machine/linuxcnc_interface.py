@@ -211,3 +211,18 @@ class MachineController:
 
     def abort(self) -> None:
         self.command.abort()
+
+    def run_program_file(self, path: str) -> bool:
+        """Load and run a G-code file in AUTO mode (used by the simulation dry-runs).
+
+        Runs continuously inside LinuxCNC (so the GUI stays responsive and the
+        camera keeps streaming) rather than issuing MDI line by line. Returns
+        False if the machine isn't ready.
+        """
+        if not self.ok_for_mdi():
+            return False
+        self.command.mode(self.linuxcnc.MODE_AUTO)
+        self.command.wait_complete()
+        self.command.program_open(path)
+        self.command.auto(self.linuxcnc.AUTO_RUN)
+        return True

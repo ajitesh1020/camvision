@@ -76,6 +76,9 @@ class _Command:
     def auto(self, *args):
         log.info("stub auto%s", args)
 
+    def program_open(self, path):
+        log.info("stub program_open(%s)", path)
+
     def state(self, s):
         log.debug("stub command.state(%s)", s)
 

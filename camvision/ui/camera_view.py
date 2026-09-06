@@ -52,12 +52,9 @@ class CameraView(QLabel):
         self.setFixedSize(FRAME_WIDTH, FRAME_HEIGHT)
         self.setMouseTracking(True)
         self.setStyleSheet("background:#111;")
-        self.setToolTip(
-            "Click to jog: a single click moves one Step on X and Y toward the "
-            "clicked quadrant (crosshair = centre). Press and hold to jog "
-            "continuously (rapid) until you release. Set the distance with the "
-            "Step selector in the Jog panel. Mouse wheel resizes the centre circle."
-        )
+        # No tooltip on the video: a tooltip popping up over the continuously
+        # repainting frame leaves a black tear line. Click-jog help lives in the
+        # status bar / Jog panel instead.
 
         # Fixed step (mm) for a single click jog; set by MainWindow to share the
         # jog panel's Step selector. Falls back to 1 mm.
