@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDoubleSpinBox,
@@ -46,6 +46,7 @@ from ..program.model import (
 from ..program.store import load_program, save_program
 
 COLUMNS = ["Type", "X start", "Y start", "X end", "Y end", "Cx", "Cy", "R", "Dir", "Z"]
+CAPTURE_NOTICE_MS = 2000
 
 
 class TeachPanel(QGroupBox):
@@ -124,6 +125,10 @@ class TeachPanel(QGroupBox):
         self.arc_status = QLabel("Click Add Point to set the start of the path.")
         self.arc_status.setWordWrap(True)
         root.addWidget(self.arc_status)
+        self._capture_notice_after_text = self.arc_status.text()
+        self._capture_notice_timer = QTimer(self)
+        self._capture_notice_timer.setSingleShot(True)
+        self._capture_notice_timer.timeout.connect(self._clear_capture_notification)
 
         # Table
         self.table = QTableWidget(0, len(COLUMNS))
@@ -195,8 +200,12 @@ class TeachPanel(QGroupBox):
         )
 
     def _current_xy(self) -> Tuple[float, float]:
-        x, y, _z = self.controller.work_position()
+        x, y, _z = self._current_position()
         return x, y
+
+    def _current_position(self) -> Tuple[float, float, float]:
+        x, y, z = self.controller.work_position()
+        return float(x), float(y), float(z)
 
     def _sync_meta(self) -> None:
         self.program.program_name = self.name_edit.text()
@@ -212,6 +221,37 @@ class TeachPanel(QGroupBox):
     def _emit_changed(self) -> None:
         self._sync_meta()
         self.program_changed.emit()
+
+    def _set_status(self, text: str) -> None:
+        """Show an ordinary instruction and cancel any pending capture flash."""
+        self._capture_notice_timer.stop()
+        self.arc_status.setStyleSheet("")
+        self.arc_status.setText(text)
+
+    def _show_capture_notification(
+        self,
+        point_name: str,
+        position: Tuple[float, float, float],
+        after_text: str,
+    ) -> None:
+        """Flash captured coordinates, then restore the next workflow instruction."""
+        x, y, z = position
+        self._capture_notice_timer.stop()
+        self._capture_notice_after_text = after_text
+        self.arc_status.setText(
+            f"{point_name} point captured — X{x:.3f}  Y{y:.3f}  Z{z:.3f}"
+        )
+        self.arc_status.setStyleSheet(
+            "QLabel { background-color: #c6efce; color: #006100; "
+            "border: 1px solid #70ad47; border-radius: 3px; "
+            "padding: 6px; font-weight: bold; }"
+        )
+        self._capture_notice_timer.start(CAPTURE_NOTICE_MS)
+
+    def _clear_capture_notification(self) -> None:
+        self._capture_notice_timer.stop()
+        self.arc_status.setStyleSheet("")
+        self.arc_status.setText(self._capture_notice_after_text)
 
     def set_safe_z(self, value: float) -> None:
         """Apply a newly captured Safe Z to the active taught program."""
@@ -245,57 +285,76 @@ class TeachPanel(QGroupBox):
     # -- capture ----------------------------------------------------------
     def add_point(self) -> None:
         """Capture one independent cut as a start/end pair."""
-        p = self._current_xy()
+        position = self._current_position()
+        p = position[:2]
         if self._last_point is None:
             self._last_point = p
-            self.arc_status.setText(
-                f"Cut START at {p[0]:.3f}, {p[1]:.3f}. Jog to the cut END and click "
-                f"Add Point again."
+            self._show_capture_notification(
+                "START", position,
+                "Jog to the cut END and click Add Point again.",
             )
             return
         self.program.add_line(self._last_point, p, self.depth_spin.value())
         self._last_point = None
         self._append_row(self.program.segments[-1])
-        self.arc_status.setText("Cut added. Click Add Point at the next cut START.")
+        self._show_capture_notification(
+            "END", position,
+            "Cut added. Click Add Point at the next cut START.",
+        )
         self._emit_changed()
 
     # Kept for compatibility / tests: explicit start + end.
     def capture_start(self) -> None:
-        self._last_point = self._current_xy()
+        position = self._current_position()
+        self._last_point = position[:2]
+        self._show_capture_notification(
+            "START", position,
+            "Jog to the cut END and click Add Point again.",
+        )
 
     def add_line(self) -> None:
         self.add_point()
 
     def capture_arc_point(self) -> None:
-        self._arc_points.append(self._current_xy())
+        position = self._current_position()
+        self._arc_points.append(position[:2])
         n = len(self._arc_points)
-        self.arc_status.setText(f"Arc point {n}/3 captured.")
-        if n == 3:
-            p1, p2, p3 = self._arc_points
-            try:
-                center = center_from_three_points(p1, p2, p3)
-            except ValueError as exc:
-                QMessageBox.warning(self, "Bad arc", str(exc))
-                self._arc_points = []
-                return
-            direction = arc_direction_from_three_points(p1, p2, p3)
-            self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
+        if n < 3:
+            self._show_capture_notification(
+                f"ARC {n}/3", position,
+                f"Jog to arc point {n + 1}/3 and click 3-Point Arc.",
+            )
+            return
+
+        p1, p2, p3 = self._arc_points
+        try:
+            center = center_from_three_points(p1, p2, p3)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bad arc", str(exc))
             self._arc_points = []
-            self._last_point = None  # each cut is a fresh start/end; no chaining
-            self.arc_status.setText("Arc added.")
-            self._append_row(self.program.segments[-1])
-            self._emit_changed()
+            self._set_status("Arc points were invalid. Capture arc point 1/3 again.")
+            return
+        direction = arc_direction_from_three_points(p1, p2, p3)
+        self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
+        self._arc_points = []
+        self._last_point = None  # each cut is a fresh start/end; no chaining
+        self._append_row(self.program.segments[-1])
+        self._show_capture_notification("ARC 3/3", position, "Arc added.")
+        self._emit_changed()
 
     def add_circle(self) -> None:
-        center = self._current_xy()
+        position = self._current_position()
+        center = position[:2]
         self.program.add_circle(center, self.radius_spin.value(), self.depth_spin.value())
         self._append_row(self.program.segments[-1])
+        self._show_capture_notification("CIRCLE CENTRE", position, "Circle added.")
         self._emit_changed()
 
     # -- row editing ------------------------------------------------------
     def insert_point(self) -> None:
         """Insert one independent cut after the row selected on the first click."""
-        p = self._current_xy()
+        position = self._current_position()
+        p = position[:2]
         if self._insert_start is None:
             i = self.table.currentRow()
             if i < 0 or i >= len(self.program.segments):
@@ -306,9 +365,9 @@ class TeachPanel(QGroupBox):
             self._insert_start = p
             self._insert_after = i
             self.btn_insert.setText("Finish Insert Cut (END)")
-            self.arc_status.setText(
-                f"New cut START captured at {p[0]:.3f}, {p[1]:.3f} after CUT row "
-                f"{i + 1}. Jog to its END and click again."
+            self._show_capture_notification(
+                "INSERT START", position,
+                f"Start saved after CUT row {i + 1}. Jog to its END and click again.",
             )
             return
 
@@ -334,7 +393,10 @@ class TeachPanel(QGroupBox):
         self.btn_insert.setText("Insert Cut After Selected")
         self._rebuild_table()
         self.table.selectRow(insert_after + 1)
-        self.arc_status.setText("New cut inserted in green; travel is generated automatically.")
+        self._show_capture_notification(
+            "INSERT END", position,
+            "New cut inserted in green; travel is generated automatically.",
+        )
         self._emit_changed()
 
     def move_to_selected(self) -> None:
@@ -407,7 +469,7 @@ class TeachPanel(QGroupBox):
         self._insert_after = None
         self.btn_insert.setText("Insert Cut After Selected")
         self._arc_points = []
-        self.arc_status.setText("Click Add Point to set the start of the path.")
+        self._set_status("Click Add Point to set the start of the path.")
         self.table.setRowCount(0)
         self._emit_changed()
 

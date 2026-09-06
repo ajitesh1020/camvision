@@ -50,7 +50,7 @@ class SimulatePanel(QGroupBox):
         self.info = QLabel(
             "Verify a program before cutting (all dry-runs stay at the safe Z):\n"
             "• Set Safe Z first (button under Set X/Y Zero).\n"
-            "• Set Simulation feed in Setup > G-code to control all XY motion.\n"
+            "• Simulation feed controls cuts; travel between cuts remains rapid.\n"
             "• Run: Camera-follow — camera down, follows the TAUGHT path so the\n"
             "  crosshair traces the cut line on the PCB (checks teaching).\n"
             "• Run: Spindle-path — camera up, follows the OFFSET-compensated path\n"

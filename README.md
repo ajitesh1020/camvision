@@ -27,8 +27,8 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
   true G2/G3), and **full circles** (centre + radius). Programs carry a **name**
   and **operator**, save as editable `.cvprog`, and reload for editing.
 - **Real-machine Camera-follow and Spindle-path simulation** at safe Z, with a
-  configurable slow XY feed for observing both cut paths and travel moves, plus
-  an on-screen offset-compensated preview.
+  configurable XY feed for observing cutting segments while non-cutting travel
+  remains rapid, plus an on-screen offset-compensated preview.
 - **Fiducial correction** (optional, toggle in Setup): runs entirely inside the
   GUI (it owns the camera — no shared memory), detecting two fiducials and
   applying a rotation with `G10 L2 P0 R`.

@@ -59,8 +59,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "tool_dia": "0.5",
         "z_feed": "800",
         "xy_feed": "600",
-        # Shared controlled XY speed for Camera Follow and Spindle Follow.
-        # Simulation uses feed moves instead of G0 so the path is visible.
+        # Shared speed for the cutting segments in Camera/Spindle Follow.
+        # Non-cutting simulation travel remains rapid G0 motion.
         "simulation_feed": "200",
     },
     "Program_Settings": {

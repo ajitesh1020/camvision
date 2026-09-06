@@ -46,7 +46,21 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path, monkeypatch):
             (0.0, 30.0, 0.0),
         ])
         monkeypatch.setattr(win.controller, "work_position", lambda: next(taught))
-        for _ in range(4):
+        teach.add_point()
+        assert "START point captured" in teach.arc_status.text()
+        assert "X0.000" in teach.arc_status.text()
+        assert "Y0.000" in teach.arc_status.text()
+        assert "Z0.000" in teach.arc_status.text()
+        assert "font-weight: bold" in teach.arc_status.styleSheet()
+        assert teach._capture_notice_timer.isActive()
+        teach._clear_capture_notification()
+        assert teach.arc_status.text() == "Jog to the cut END and click Add Point again."
+        assert teach.arc_status.styleSheet() == ""
+
+        teach.add_point()
+        assert "END point captured" in teach.arc_status.text()
+        assert "Y10.000" in teach.arc_status.text()
+        for _ in range(2):
             teach.add_point()
         assert len(teach.program.segments) == 2
 
@@ -141,7 +155,7 @@ def test_safe_z_move_and_retract_setting_are_independent(qapp, tmp_path, monkeyp
         assert win.config.gcode_params()["retract"] == 6.25
         assert win.teach_panel.program.retract == 6.25
 
-        # One persisted feed controls all XY motion in both dry-run modes.
+        # One persisted feed controls cutting-segment motion in both dry-run modes.
         win.setup_panel.simulation_feed.setValue(175.0)
         assert win.config.gcode_params()["simulation_feed"] == 175.0
 

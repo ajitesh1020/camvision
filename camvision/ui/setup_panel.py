@@ -144,8 +144,8 @@ class SetupPanel(QGroupBox):
         self.simulation_feed.setSuffix(" mm/min")
         self.simulation_feed.setValue(self.config.gcode_params()["simulation_feed"])
         self.simulation_feed.setToolTip(
-            "Controlled XY speed used by both Camera Follow and Spindle Follow. "
-            "All simulation travel and path moves use this feed so motion can be observed."
+            "XY speed used for taught cutting segments in both Camera Follow and "
+            "Spindle Follow. Non-cutting travel between segments remains rapid G0 motion."
         )
         self.simulation_feed.valueChanged.connect(self._apply_simulation_feed)
         form.addRow("Simulation feed", self.simulation_feed)

@@ -153,11 +153,11 @@ def dryrun_moves(
     * camera-follow: ``apply_offset=False`` so the camera traces the taught line;
     * spindle-path:  ``apply_offset=True``  so the spindle traces the real cut.
 
-    The tool never leaves ``safe_z``, so nothing touches the PCB. Every XY move,
-    including travel to the next segment, is a controlled feed move at
-    ``simulation_feed`` so the operator can see it. When ``dwell_s`` is set, the
-    tool pauses that many seconds at the end of each cut. If no simulation feed
-    is supplied, the program XY feed is used for backward compatibility.
+    The tool never leaves ``safe_z``, so nothing touches the PCB. Travel to each
+    segment start is a rapid ``G0`` move; only the taught cutting segment uses
+    ``simulation_feed``. When ``dwell_s`` is set, the tool pauses that many
+    seconds at the end of each cut. If no simulation feed is supplied, the
+    program XY feed is used for backward compatibility.
     """
     program.validate()
     off = offset or CameraOffset()
@@ -171,7 +171,7 @@ def dryrun_moves(
     moves: List[str] = ["G21", "G90", "G17", f"G0 Z{safe_z:.4f}"]
     for seg in program.segments:
         start = comp(seg.start)
-        moves.append(f"G1 {_fmt_xy(*start)} F{trace_feed:.0f}")
+        moves.append(f"G0 {_fmt_xy(*start)}")
         moves.extend(_cut_move(seg, program, comp, start, feed=trace_feed))
         if dwell_s > 0:
             moves.append(f"G4 P{dwell_s:g}")          # pause to view this cut

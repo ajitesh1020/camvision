@@ -31,7 +31,7 @@ class FakeController:
         (SPINDLE_PATH, "M65 P0", "X5.0000 Y18.0000", "X25.0000 Y18.0000"),
     ],
 )
-def test_both_dryrun_modes_use_configured_feed_for_all_xy(
+def test_both_dryrun_modes_feed_cuts_and_rapid_non_cutting_travel(
         tmp_path, mode, camera_mcode, expected_start, expected_end):
     config = ConfigManager(str(tmp_path / "config.json"))
     config.set("Gcode_Param", "z_safe", 40.0)
@@ -48,9 +48,9 @@ def test_both_dryrun_modes_use_configured_feed_for_all_xy(
     try:
         assert runner.run(mode) is None
         assert camera_mcode in controller.lines
-        assert f"G1 {expected_start} F85" in controller.lines
+        assert f"G0 {expected_start}" in controller.lines
         assert f"G1 {expected_end} F85" in controller.lines
-        assert not any(line.startswith("G0 X") for line in controller.lines)
+        assert f"G1 {expected_start} F85" not in controller.lines
         assert any("85 mm/min" in line for line in controller.lines)
         assert "85 mm/min" in statuses[-1]
     finally:

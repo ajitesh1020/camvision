@@ -13,10 +13,10 @@ stay at it. This is the equivalent of the legacy "Z height" button.
 ## Set a visible simulation speed
 
 In **Setup → G-code**, set **Simulation feed** in mm/min. Camera-follow and
-Spindle-path use this one speed for every XY move, including travel between
-separate cuts. Simulation XY moves are controlled `G1` feed moves rather than
-rapid `G0` moves, making the full route easy to observe. This setting affects
-only simulation; it does not change the feed rates in exported cutting G-code.
+Spindle-path use this one speed for each taught cutting segment (`G1`/`G2`/`G3`).
+Non-cutting travel to the next segment start remains a rapid `G0` move, matching
+the real cutting program. This setting affects only simulation; it does not
+change the feed rates in exported cutting G-code.
 
 ## The two simulation modes (Simulate tab)
 
