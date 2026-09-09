@@ -27,7 +27,7 @@ system packages (they pair with LinuxCNC's own `linuxcnc`/`hal` Python modules):
 
 ```bash
 sudo apt-get update
-sudo apt-get install python3-pyqt5 python3-opencv python3-numpy
+sudo apt-get install python3-pyqt5 python3-opencv python3-numpy python3-openpyxl
 ```
 
 ## 2. Install the CamVision app

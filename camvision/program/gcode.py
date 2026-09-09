@@ -47,6 +47,8 @@ def _header(program: Program, off: CameraOffset, apply_offset: bool,
         f"( Extents mm: X {min_x:.3f}..{max_x:.3f}  Y {min_y:.3f}..{max_y:.3f} )",
         f"( Size mm: {max_x - min_x:.3f} x {max_y - min_y:.3f} )",
         f"( Tool diameter: {program.tool_dia:.3f} mm )",
+        f"( Audit Z: depth {program.depth:.4f}  retract {program.retract:.4f}  safe {program.z_safe:.4f} )",
+        f"( Audit feeds: XY {program.xy_feed:.0f}  Z {program.z_feed:.0f}  spindle {program.spindle_rpm:.0f} )",
     ]
     if use_spindle_zero:
         header.append(

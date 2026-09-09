@@ -53,6 +53,7 @@ class TeachPanel(QGroupBox):
     """Editable teaching table backed by a :class:`Program`."""
 
     program_changed = pyqtSignal()
+    audit_event = pyqtSignal(str, object)
 
     def __init__(self, controller, config, parent=None):
         super().__init__("Teach program", parent)
@@ -549,6 +550,7 @@ class TeachPanel(QGroupBox):
             path += ".cvprog"
         save_program(self.program, path)
         self._remember_program_path(path)
+        self.audit_event.emit("saved", {"path": path, "program": self.program})
         QMessageBox.information(self, "Saved", f"Program saved to {path}")
 
     def load(self) -> None:
@@ -568,6 +570,7 @@ class TeachPanel(QGroupBox):
         self._rebuild_table()
         self._emit_changed()
         self._remember_program_path(path)
+        self.audit_event.emit("loaded", {"path": path, "program": self.program})
 
     def export_gcode(self) -> None:
         self._sync_meta()
@@ -593,4 +596,7 @@ class TeachPanel(QGroupBox):
             apply_offset=apply_offset, use_spindle_zero=use_spindle_zero,
         )
         self._remember_program_path(path)
+        self.audit_event.emit("exported", {"path": path, "program": self.program,
+                                              "use_spindle_zero": use_spindle_zero,
+                                              "apply_offset": apply_offset})
         QMessageBox.information(self, "Exported", f"G-code written to {path}")

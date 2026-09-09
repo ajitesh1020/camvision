@@ -53,6 +53,9 @@ class MachineController:
         self.stat = self.linuxcnc.stat()
         self.command = self.linuxcnc.command()
         self.allow_unhomed_motion = False
+        # Optional observer used by the audit layer. It is notification-only;
+        # command execution never depends on it.
+        self.audit_callback = None
         try:
             self.error_channel = self.linuxcnc.error_channel()
         except Exception:  # pragma: no cover - only if the API is unavailable
@@ -244,6 +247,11 @@ class MachineController:
 
     def abort(self) -> None:
         self.command.abort()
+        if self.audit_callback is not None:
+            try:
+                self.audit_callback("abort")
+            except Exception:
+                log.exception("Audit abort observer failed")
 
     def run_program_file(self, path: str) -> bool:
         """Load and run a G-code file in AUTO mode (used by the simulation dry-runs).

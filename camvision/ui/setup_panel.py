@@ -34,6 +34,7 @@ class SetupPanel(QGroupBox):
     retract_changed = pyqtSignal(float)
     calibration_changed = pyqtSignal()
     development_mode_changed = pyqtSignal(bool)
+    view_logs_requested = pyqtSignal()
 
     def __init__(self, controller, config, camera_service, parent=None):
         super().__init__("Setup", parent)
@@ -173,6 +174,13 @@ class SetupPanel(QGroupBox):
         )
         self.chk_development_mode.stateChanged.connect(self._apply_development_mode)
         form.addRow(self.chk_development_mode)
+
+        self.btn_view_logs = QPushButton("View audit logs")
+        self.btn_view_logs.setToolTip(
+            "Open the password-protected, read-only operator/program/machine audit log viewer."
+        )
+        self.btn_view_logs.clicked.connect(self.view_logs_requested.emit)
+        form.addRow(self.btn_view_logs)
         return box
 
     def _apply_arc_teaching(self) -> None:

@@ -48,6 +48,7 @@ class _Stat:
         self.position = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self.actual_position = self.position
         self.g5x_offset = (0.0,) * 9
+        self.g5x_index = 1
         self.g92_offset = (0.0,) * 9
         self.file = ""
 

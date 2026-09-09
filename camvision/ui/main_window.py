@@ -14,6 +14,8 @@ in-GUI fiducial cycle; one
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
@@ -32,6 +34,7 @@ from PyQt5.QtWidgets import (
 
 from .. import __version__
 from ..camera.service import CameraService
+from ..audit import AuditLog
 from ..config import ConfigManager
 from ..fiducial_cycle import FiducialCycle
 from ..machine.linuxcnc_interface import MachineController
@@ -54,6 +57,10 @@ class MainWindow(QMainWindow):
         self.controller.set_development_mode(
             self.config.checkbox("development_mode", False)
         )
+        # AuditLog owns a background SQLite writer.  It receives snapshots from
+        # the existing status timer and never polls or commands LinuxCNC itself.
+        self.audit = AuditLog()
+        self.controller.audit_callback = self._audit_controller_event
 
         self.camera = CameraService(device=self.config.camera_device_spec)
         self.camera.flip_x = self.config.get("Camera_Settings", "flip_x", False)
@@ -249,6 +256,10 @@ class MainWindow(QMainWindow):
         self.config.data["Gcode_Param"]["z_safe"] = round(float(z), 4)
         self.config.save()
         self.teach_panel.set_safe_z(z)
+        self.audit.record("machine", "safe_z_set", message=f"Safe Z set to {z:.4f} mm.",
+                          operator=self.teach_panel.program.operator,
+                          program_name=self.teach_panel.program.program_name,
+                          details={"safe_z": round(float(z), 4)})
         self._notify(f"Safe Z set to {z:.3f} mm.")
 
     def _set_camera_and_spindle_zero(self) -> None:
@@ -258,10 +269,20 @@ class MainWindow(QMainWindow):
             self._notify(reason, "warn")
             return
         off = self.config.camera_offset
+        try:
+            _x, _y, g54_z = self.controller.work_position()
+        except Exception:
+            g54_z = None
         if not self.controller.set_camera_and_spindle_zero(off.x, off.y):
             self._notify("Could not set Camera G54 and Spindle G55 zero.", "warn")
             return
         self.setup_panel.enable_spindle_zero_export()
+        self.audit.record("machine", "g54_g55_touch_off",
+                          message="Camera G54 and spindle G55 zero set.",
+                          operator=self.teach_panel.program.operator,
+                          program_name=self.teach_panel.program.program_name,
+                          details={"g54_xy": [0.0, 0.0], "g55_xy_offset": [off.x, off.y],
+                                   "g54_z_reference": g54_z})
         self._notify(
             f"Camera G54 X/Y zero and Spindle G55 zero set. G55 Z matches G54; "
             f"offset X{off.x:.3f} Y{off.y:.3f} mm."
@@ -271,6 +292,9 @@ class MainWindow(QMainWindow):
         """Apply the persisted test-only unhomed-motion gate immediately."""
         self.controller.set_development_mode(enabled)
         self.dev_mode_label.setVisible(enabled)
+        self.audit.record("security", "development_mode_changed", severity="warning" if enabled else "info",
+                          message="Development mode enabled." if enabled else "Development mode disabled.",
+                          details={"enabled": bool(enabled)})
         self._notify(
             "Development mode enabled: unhomed motion is allowed by CamVision."
             if enabled else "Development mode disabled: homing is required by CamVision."
@@ -337,11 +361,48 @@ class MainWindow(QMainWindow):
         self.setup_panel.arc_teaching_changed.connect(self.teach_panel.set_arc_teaching_visible)
         self.setup_panel.retract_changed.connect(self.teach_panel.set_retract)
         self.setup_panel.development_mode_changed.connect(self._set_development_mode)
+        self.setup_panel.view_logs_requested.connect(self._open_log_viewer)
         self.setup_panel.calibration_changed.connect(
             lambda: self.camera_view.set_tool_diameter(self.tool_dia.value())
         )
         self.teach_panel.program_changed.connect(self._sync_tool_diameter_from_program)
+        self.teach_panel.audit_event.connect(self._record_program_event)
         self._apply_overlays()
+
+    def _record_program_event(self, action: str, payload: object) -> None:
+        """Record saved/loaded/exported program evidence, never captured points."""
+        data = payload if isinstance(payload, dict) else {}
+        program = data.get("program")
+        if program is None:
+            return
+        details = {
+            "gcode_parameters": {
+                "depth": program.depth, "retract_z": program.retract,
+                "safe_z": program.z_safe, "z_feed": program.z_feed,
+                "xy_feed": program.xy_feed, "spindle_rpm": program.spindle_rpm,
+                "tool_dia": program.tool_dia,
+            },
+            "segments": len(program.segments),
+            "use_spindle_zero": data.get("use_spindle_zero"),
+            "apply_offset": data.get("apply_offset"),
+        }
+        self.audit.record("program", action, message=f"Program {action}: {program.program_name or 'unnamed'}.",
+                          operator=program.operator, program_name=program.program_name,
+                          program_path=str(data.get("path", "")), details=details)
+
+    def _open_log_viewer(self) -> None:
+        """Launch the read-only viewer in a separate process, never on the status loop."""
+        try:
+            subprocess.Popen([sys.executable, "-m", "camvision.log_viewer", "--config", self.config.path])
+        except OSError as exc:
+            self._notify(f"Could not open audit log viewer: {exc}", "error")
+
+    def _audit_controller_event(self, action: str) -> None:
+        if action == "abort":
+            self.audit.record("program", "abort", severity="warning",
+                              message="Abort requested from CamVision.",
+                              operator=self.teach_panel.program.operator,
+                              program_name=self.teach_panel.program.program_name)
 
     # -- slots ------------------------------------------------------------
     def _apply_overlays(self) -> None:
@@ -386,9 +447,21 @@ class MainWindow(QMainWindow):
         self.state_label.setStyleSheet("color:#c00;font-weight:bold;" if reason
                                        else "color:#080;font-weight:bold;")
 
+        # No additional stat.poll(): observe the snapshot already refreshed by
+        # the existing status/readiness work above.
+        self.audit.observe_status(
+            self.controller.stat, self.controller.linuxcnc,
+            operator=self.teach_panel.program.operator,
+            program_name=self.teach_panel.program.program_name,
+        )
+
         # 3. Surface any LinuxCNC operator error (same channel AXIS reads).
         err = self.controller.poll_error()
         if err:
+            self.audit.record_error(
+                err, self.controller.stat, operator=self.teach_panel.program.operator,
+                program_name=self.teach_panel.program.program_name,
+            )
             self._notify(err, "error")
 
     # -- notifications ----------------------------------------------------
@@ -421,4 +494,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):  # noqa: N802
         self.camera.stop()
         self.config.save()
+        self.audit.close()
         event.accept()

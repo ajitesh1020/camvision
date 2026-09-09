@@ -37,6 +37,11 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
 - **Notification bar**: a machine-not-ready reason when you press a button before
   homing/power-on, plus LinuxCNC operator errors, with a live DRO and READY/NOT
   READY state. CamVision **auto-closes when LinuxCNC exits**.
+- **Operator audit log**: asynchronous daily SQLite audit records for program
+  load/save/export/run/pause/stop/abort, LinuxCNC errors, G54/G55 touch-off, and
+  safety/depth parameters. Open **Setup → View audit logs** for the
+  password-protected read-only viewer and filtered Excel export. Logs live under
+  `~/.dePaneling-log/`; they never run on LinuxCNC's motion thread.
 
 See **[docs/SIMULATION.md](docs/SIMULATION.md)** for how to check a program before
 cutting.
@@ -69,7 +74,7 @@ Use the system packages on the machine (they pair with LinuxCNC's bundled
 `linuxcnc`/`hal` modules), then clone the app:
 
 ```bash
-sudo apt-get install python3-pyqt5 python3-opencv python3-numpy
+sudo apt-get install python3-pyqt5 python3-opencv python3-numpy python3-openpyxl
 git clone https://github.com/ajitesh1020/camvision.git ~/camvision
 cd ~/camvision && QT_QPA_PLATFORM=offscreen python3 -m pytest -q   # sanity check
 ```
