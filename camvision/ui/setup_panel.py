@@ -149,6 +149,17 @@ class SetupPanel(QGroupBox):
         )
         self.simulation_feed.valueChanged.connect(self._apply_simulation_feed)
         form.addRow("Simulation feed", self.simulation_feed)
+
+        self.chk_spindle_zero_export = QCheckBox("Export using spindle G55 zero")
+        self.chk_spindle_zero_export.setChecked(
+            self.config.checkbox("use_spindle_zero_export", False)
+        )
+        self.chk_spindle_zero_export.setToolTip(
+            "Use taught X/Y values directly in exported G-code with G55 as the spindle "
+            "zero. First use Set Camera Zero + Spindle G55 at the PCB reference."
+        )
+        self.chk_spindle_zero_export.stateChanged.connect(self._apply_spindle_zero_export)
+        form.addRow(self.chk_spindle_zero_export)
         return box
 
     def _apply_arc_teaching(self) -> None:
@@ -348,6 +359,16 @@ class SetupPanel(QGroupBox):
     def _apply_simulation_feed(self, feed: float) -> None:
         self.config.set("Gcode_Param", "simulation_feed", float(feed))
         self.config.save()
+
+    def _apply_spindle_zero_export(self) -> None:
+        self.config.set_checkbox(
+            "use_spindle_zero_export", self.chk_spindle_zero_export.isChecked()
+        )
+        self.config.save()
+
+    def enable_spindle_zero_export(self) -> None:
+        """Reflect a successfully established G55 zero in the export setting."""
+        self.chk_spindle_zero_export.setChecked(True)
 
     def _apply_fiducial(self) -> None:
         f = self.config.data["Fiducials_Settings"]

@@ -83,6 +83,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "enable_crosshair": True,
         "enable_roi": True,
         "apply_spindle_offsets": True,
+        # False preserves the legacy G54 export until the operator establishes
+        # G55 with "Set Camera Zero + Spindle G55".
+        "use_spindle_zero_export": False,
         "enable_fiducial_check": False,
         "enable_arc_teaching": False,
     },

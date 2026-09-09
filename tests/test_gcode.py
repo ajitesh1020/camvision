@@ -44,6 +44,19 @@ def test_no_offset_when_disabled():
     assert "G1 X30.0000 Y20.0000 F600" in g
 
 
+def test_spindle_g55_zero_uses_taught_xy_and_restores_g54():
+    p = _program()
+    p.add_line((10.0, 20.0), (30.0, 20.0), z=-1.5)
+    g = generate_gcode(p, offset=CameraOffset(100, 5), use_spindle_zero=True)
+
+    assert "( Work zero: G55 spindle zero; camera->spindle offset encoded in G55  X100.000 Y5.000 )" in g
+    assert "G55" in g
+    assert "G0 X10.0000 Y20.0000" in g
+    assert "G1 X30.0000 Y20.0000 F600" in g
+    assert "G0 X-90.0000 Y15.0000" not in g
+    assert g[-2:] == ["G54", "M30"]
+
+
 def test_arc_emits_g2_g3_with_ij():
     p = _program()
     # Quarter arc from (10,0) to (0,10) about origin, CCW => G3

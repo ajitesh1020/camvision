@@ -151,6 +151,19 @@ def test_safe_z_move_and_retract_setting_are_independent(qapp, tmp_path, monkeyp
         win.btn_go_safe_z.click()
         assert commands == ["G0 Z42.5000"]
 
+        # Camera touch-off initializes G54 X/Y and G55 spindle X/Y, while G55
+        # takes its Z reference from the current G54 Z coordinate.
+        commands.clear()
+        monkeypatch.setattr(win.controller, "work_position", lambda: (0.0, 0.0, 57.75))
+        win.btn_set_zero.click()
+        assert commands == [
+            "G54",
+            "G10 L20 P1 X0 Y0",
+            "G10 L20 P2 X10.0000 Y5.0000 Z57.7500",
+        ]
+        assert win.config.checkbox("use_spindle_zero_export") is True
+        assert win.setup_panel.chk_spindle_zero_export.isChecked() is True
+
         # Tool diameter is typed/selected once and drives config, program,
         # the physical-size crosshair circle, and later the G-code comment.
         win.tool_dia.setValue(1.5)

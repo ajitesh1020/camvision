@@ -194,7 +194,10 @@ class TeachPanel(QGroupBox):
         self.btn_load = QPushButton("Load .cvprog")
         self.btn_load.setToolTip("Load a saved .cvprog program back into the table for editing.")
         self.btn_export = QPushButton("Export G-code")
-        self.btn_export.setToolTip("Generate a .ngc file (camera offset compensated) to run in AXIS.")
+        self.btn_export.setToolTip(
+            "Generate a .ngc file for AXIS. It uses G55 with taught X/Y when "
+            "Spindle G55 export is enabled; otherwise it uses compensated G54 X/Y."
+        )
         for b in (self.btn_new, self.btn_save, self.btn_load, self.btn_export):
             files.addWidget(b)
         root.addLayout(files)
@@ -584,6 +587,10 @@ class TeachPanel(QGroupBox):
         if not path.endswith(".ngc"):
             path += ".ngc"
         apply_offset = self.config.checkbox("apply_spindle_offsets", True)
-        write_gcode(self.program, path, offset=self.config.camera_offset, apply_offset=apply_offset)
+        use_spindle_zero = self.config.checkbox("use_spindle_zero_export", False)
+        write_gcode(
+            self.program, path, offset=self.config.camera_offset,
+            apply_offset=apply_offset, use_spindle_zero=use_spindle_zero,
+        )
         self._remember_program_path(path)
         QMessageBox.information(self, "Exported", f"G-code written to {path}")

@@ -26,3 +26,17 @@ def test_not_ready_reasons():
     c.stat.enabled = 1
     c.stat.homed = [0, 0, 0]
     assert "homed" in c.not_ready_reason().lower()
+
+
+def test_set_camera_and_spindle_zero_keeps_g54_z():
+    c = MachineController()
+    commands = []
+    c.mdi = lambda command: commands.append(command) or True
+    c.work_position = lambda: (0.0, 0.0, 57.75)
+
+    assert c.set_camera_and_spindle_zero(112.844, 10.867) is True
+    assert commands == [
+        "G54",
+        "G10 L20 P1 X0 Y0",
+        "G10 L20 P2 X112.8440 Y10.8670 Z57.7500",
+    ]

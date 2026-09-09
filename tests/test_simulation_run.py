@@ -56,3 +56,26 @@ def test_both_dryrun_modes_feed_cuts_and_rapid_non_cutting_travel(
     finally:
         if controller.path and os.path.exists(controller.path):
             os.remove(controller.path)
+
+
+def test_spindle_dryrun_uses_g55_when_spindle_zero_export_is_enabled(tmp_path):
+    config = ConfigManager(str(tmp_path / "config.json"))
+    config.set("Gcode_Param", "z_safe", 40.0)
+    config.set("Gcode_Param", "simulation_feed", 85.0)
+    config.set("Camera_offset", "camera_to_spindle_x_offset", 5.0)
+    config.set("Camera_offset", "camera_to_spindle_y_offset", 2.0)
+    config.set_checkbox("use_spindle_zero_export", True)
+    program = Program(z_safe=40.0)
+    program.add_line((10.0, 20.0), (30.0, 20.0), z=-2.0)
+    controller = FakeController()
+
+    try:
+        assert SimulationRunner(controller, config, program).run(SPINDLE_PATH) is None
+        assert "G55" in controller.lines
+        assert "G0 X10.0000 Y20.0000" in controller.lines
+        assert "G1 X30.0000 Y20.0000 F85" in controller.lines
+        assert "G0 X5.0000 Y18.0000" not in controller.lines
+        assert controller.lines[-2:] == ["G54", "M2"]
+    finally:
+        if controller.path and os.path.exists(controller.path):
+            os.remove(controller.path)

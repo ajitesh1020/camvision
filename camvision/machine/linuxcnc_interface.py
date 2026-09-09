@@ -193,6 +193,30 @@ class MachineController:
         """Set the current XY as G54 work zero (crosshair-to-edge zeroing)."""
         return self.mdi("G10 L20 P0 X0 Y0")
 
+    def set_camera_and_spindle_zero(self, offset_x: float, offset_y: float) -> bool:
+        """Set camera G54 XY zero and an offset G55 spindle zero.
+
+        G55 receives the *current G54 Z coordinate* unchanged.  This means the
+        camera and spindle coordinate systems share their Z reference while G55
+        X/Y zero moves from the camera axis to the spindle tip.
+        """
+        # Explicitly select G54 before reading its Z reference or touching off.
+        if not self.mdi("G54"):
+            return False
+        try:
+            _x, _y, g54_z = self.work_position()
+        except Exception:
+            log.exception("Could not read G54 Z while setting spindle zero")
+            return False
+        if not self.mdi("G10 L20 P1 X0 Y0"):
+            return False
+        # At the camera zero position, assigning G55 the camera->spindle XY
+        # offset makes G55 X0/Y0 coincide with the spindle at that same feature.
+        # Reusing g54_z keeps all programmed Z values identical in G54 and G55.
+        return self.mdi(
+            f"G10 L20 P2 X{offset_x:.4f} Y{offset_y:.4f} Z{g54_z:.4f}"
+        )
+
     def apply_rotation(self, degrees: float) -> bool:
         """Rotate the G54 coordinate system (fiducial skew correction)."""
         return self.mdi(f"G10 L2 P0 R{degrees:.4f}")

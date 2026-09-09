@@ -7,8 +7,21 @@ only move XY so you can watch the path.
 ## First: set the Safe Z
 
 Jog Z to a height that clears the fixture, then press **Set Safe Z (here)** (under
-*Set X/Y Zero* on the jog side). Programs retract to this height and both dry-runs
+*Set Camera Zero + Spindle G55* on the jog side). Programs retract to this height and both dry-runs
 stay at it. This is the equivalent of the legacy "Z height" button.
+
+## Camera G54 and spindle G55 zero
+
+With the camera crosshair on the PCB reference, press **Set Camera Zero + Spindle
+G55**. CamVision sets camera X/Y zero in G54 and makes G55 X/Y zero coincide with
+the spindle at the same reference using the saved camera-to-spindle offset. G55
+inherits G54's Z reference, so cut depth, Retract Z, and Safe Z have the same
+meaning in both coordinate systems.
+
+When **Export using spindle G55 zero** is enabled in Setup → G-code, cutting
+programs select G55 and use the taught positive X/Y values. The program returns
+to G54 after a normal finish. Leave this option off to use the original G54
+export, where the offset is subtracted into each G-code XY value.
 
 ## Set a visible simulation speed
 

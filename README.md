@@ -15,8 +15,9 @@ Qt and from LinuxCNC, so it is unit-tested on any machine and only the thin
 
 - **Live camera view** (OpenCV) with a crosshair, adjustable centre circle, and a
   fiducial ROI you drag on the image.
-- **Set X/Y zero**: align the crosshair to the physical PCB edge and set the G54
-  work zero (`G10 L20 P0 X0 Y0`).
+- **Camera and spindle zero**: align the crosshair to the physical PCB edge and
+  set the G54 camera zero plus offset G55 spindle zero. G55 keeps the same Z
+  reference as G54, so cutting files can use the taught positive X/Y values.
 - **Mouse-click jog** on the camera image:
   - **short click** → one fixed **Step** on both X and Y toward the clicked
     quadrant (crosshair = centre), so every click moves a known distance;
@@ -91,7 +92,8 @@ import_legacy_config("old/config.json", "my_6060/config.json")
 
 ## Workflow
 
-1. Jog so the crosshair sits on the PCB corner/edge → **Set X/Y Zero**.
+1. Jog so the crosshair sits on the PCB corner/edge → **Set Camera Zero +
+   Spindle G55**.
 2. **Teach** tab: capture start, add line / arc / circle; set cut Z per segment;
    enter program name + operator.
 3. **Simulate** tab: **Build** then **Play** — the tool tracks the offset-

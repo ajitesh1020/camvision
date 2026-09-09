@@ -136,9 +136,11 @@ your VFD max (the legacy machine used a `pwmgen` scaled to **24000** RPM on
 `parport.0.pin-01-out`, with spindle-on on `parport.0.pin-17-out` /
 `parport.1.pin-07-out`). See Appendix B.
 
-Zeroing (`Set X/Y Zero` button) issues `G10 L20 P0 X0 Y0`; skew correction issues
-`G10 L2 P0 R<deg>`. Both need `HALUI = halui` in the INI (above) and a homed
-machine. No extra HAL is required for those.
+Zeroing (`Set Camera Zero + Spindle G55`) sets G54 camera X/Y zero, then creates
+G55 spindle X/Y zero from the saved camera-to-spindle offset. G55 receives the
+same Z reference as G54, so all programmed Z values remain unchanged. Skew
+correction issues `G10 L2 P0 R<deg>`. Both need `HALUI = halui` in the INI
+(above) and a homed machine. No extra HAL is required for those.
 
 ## 5. Auxiliary I/O
 
@@ -227,7 +229,8 @@ ls -l /dev/v4l/by-id/       # shows the stable handles
 
 ## 9. Daily workflow
 
-1. Jog so the crosshair sits on the PCB corner/edge → **Set X/Y Zero**.
+1. Jog so the crosshair sits on the PCB corner/edge → **Set Camera Zero +
+   Spindle G55**.
 2. **Teach**: capture start → add line / 3-point arc / circle; set cut Z per
    segment; enter program name + operator.
 3. **Simulate**: Build → Play — the tool traces the offset-compensated path at

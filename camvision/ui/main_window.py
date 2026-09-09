@@ -168,10 +168,11 @@ class MainWindow(QMainWindow):
         """Work-coordinate and Z-height setup actions."""
         box = QGroupBox("Work Setup")
         col = QVBoxLayout(box)
-        self.btn_set_zero = QPushButton("Set X/Y Zero")
+        self.btn_set_zero = QPushButton("Set Camera Zero + Spindle G55")
         self.btn_set_zero.setToolTip(
-            "Set the current position as the G54 work zero (align the crosshair to "
-            "the PCB edge first) — G10 L20 P0 X0 Y0."
+            "With the camera crosshair on the PCB reference, set G54 X/Y camera zero "
+            "and G55 X/Y spindle zero from the saved offset. G55 uses the same Z "
+            "reference as G54."
         )
         self.btn_set_safe_z = QPushButton("Set Safe Z (here)")
         self.btn_set_safe_z.setToolTip(
@@ -182,7 +183,7 @@ class MainWindow(QMainWindow):
         self.btn_go_safe_z.setToolTip(
             "Rapid only the Z axis to the saved Safe Z before teaching with the camera."
         )
-        self.btn_set_zero.clicked.connect(lambda: self._machine_action(self.controller.set_work_zero_xy))
+        self.btn_set_zero.clicked.connect(self._set_camera_and_spindle_zero)
         self.btn_set_safe_z.clicked.connect(self._set_safe_z)
         self.btn_go_safe_z.clicked.connect(self._go_to_safe_z)
         for button in (self.btn_set_zero, self.btn_set_safe_z, self.btn_go_safe_z):
@@ -238,6 +239,22 @@ class MainWindow(QMainWindow):
         self.config.save()
         self.teach_panel.set_safe_z(z)
         self._notify(f"Safe Z set to {z:.3f} mm.")
+
+    def _set_camera_and_spindle_zero(self) -> None:
+        """Touch off camera G54 and offset G55 while retaining G54's Z reference."""
+        reason = self.controller.not_ready_reason()
+        if reason:
+            self._notify(reason, "warn")
+            return
+        off = self.config.camera_offset
+        if not self.controller.set_camera_and_spindle_zero(off.x, off.y):
+            self._notify("Could not set Camera G54 and Spindle G55 zero.", "warn")
+            return
+        self.setup_panel.enable_spindle_zero_export()
+        self._notify(
+            f"Camera G54 X/Y zero and Spindle G55 zero set. G55 Z matches G54; "
+            f"offset X{off.x:.3f} Y{off.y:.3f} mm."
+        )
 
     def _go_to_safe_z(self) -> None:
         """Rapid Z to the saved Safe Z while preserving the current X/Y position."""

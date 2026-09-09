@@ -33,28 +33,39 @@ def _arc_ij(start: Tuple[float, float], center: Tuple[float, float]) -> str:
     return f"I{i:.4f} J{j:.4f}"
 
 
-def _header(program: Program, off: CameraOffset, apply_offset: bool) -> List[str]:
+def _header(program: Program, off: CameraOffset, apply_offset: bool,
+            use_spindle_zero: bool) -> List[str]:
     """Comment lines describing the program (operator, time, size, point count)."""
     sim = simulate(program, offset=off, apply_offset=apply_offset)
     pts = flatten_points(sim)
     min_x, min_y, max_x, max_y = bounding_box(sim)
-    return [
+    header = [
         f"( CamVision program: {program.program_name or 'unnamed'} )",
         f"( Operator: {program.operator or 'n/a'} )",
         f"( Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} )",
         f"( Segments: {len(program.segments)}   Cut points: {len(pts)} )",
         f"( Extents mm: X {min_x:.3f}..{max_x:.3f}  Y {min_y:.3f}..{max_y:.3f} )",
         f"( Size mm: {max_x - min_x:.3f} x {max_y - min_y:.3f} )",
-        f"( Camera->spindle offset applied: {'yes' if apply_offset else 'no'}"
-        f"  X{off.x:.3f} Y{off.y:.3f} )",
         f"( Tool diameter: {program.tool_dia:.3f} mm )",
     ]
+    if use_spindle_zero:
+        header.append(
+            f"( Work zero: G55 spindle zero; camera->spindle offset encoded in G55"
+            f"  X{off.x:.3f} Y{off.y:.3f} )"
+        )
+    else:
+        header.append(
+            f"( Camera->spindle offset applied: {'yes' if apply_offset else 'no'}"
+            f"  X{off.x:.3f} Y{off.y:.3f} )"
+        )
+    return header
 
 
 def generate_gcode(
     program: Program,
     offset: CameraOffset | None = None,
     apply_offset: bool = True,
+    use_spindle_zero: bool = False,
 ) -> List[str]:
     """Return the G-code for ``program`` as a list of lines.
 
@@ -67,15 +78,19 @@ def generate_gcode(
         shifted by ``-offset`` so the spindle follows the taught line.
     apply_offset:
         Mirrors the legacy "apply spindle offsets" checkbox.
+    use_spindle_zero:
+        Use an already-established G55 spindle zero. The taught coordinates are
+        then emitted directly because the offset is encoded in G55 itself.
     """
     program.validate()
     off = offset or CameraOffset()
+    effective_apply_offset = apply_offset and not use_spindle_zero
 
     def comp(pt: Tuple[float, float]) -> Tuple[float, float]:
-        return off.compensate(*pt) if apply_offset else pt
+        return off.compensate(*pt) if effective_apply_offset else pt
 
-    g: List[str] = list(_header(program, off, apply_offset))
-    g.append("G54")           # work offset
+    g: List[str] = list(_header(program, off, effective_apply_offset, use_spindle_zero))
+    g.append("G55" if use_spindle_zero else "G54")
     g.append("G21")           # millimetres
     g.append("G90")           # absolute
     g.append("G17")           # XY plane
@@ -98,6 +113,8 @@ def generate_gcode(
     if program.fiducial_check:
         g.append("M102")      # fiducial reset
     g.append("M5")            # spindle off
+    if use_spindle_zero:
+        g.append("G54")       # restore camera work coordinates after a normal run
     g.append("M30")           # program end
     return g
 
@@ -180,8 +197,11 @@ def dryrun_moves(
 
 
 def write_gcode(program: Program, path: str, offset: CameraOffset | None = None,
-                apply_offset: bool = True) -> None:
+                apply_offset: bool = True, use_spindle_zero: bool = False) -> None:
     """Generate and write the program to ``path`` (adds a trailing newline)."""
-    lines = generate_gcode(program, offset=offset, apply_offset=apply_offset)
+    lines = generate_gcode(
+        program, offset=offset, apply_offset=apply_offset,
+        use_spindle_zero=use_spindle_zero,
+    )
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")

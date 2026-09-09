@@ -54,7 +54,11 @@ class SimulationRunner:
         self.status("Simulation aborted.")
 
     def _write_program(self, mode: str, safe_z: float, simulation_feed: float) -> str:
-        apply_offset = (mode == SPINDLE_PATH)
+        use_spindle_zero = (
+            mode == SPINDLE_PATH
+            and self.config.checkbox("use_spindle_zero_export", False)
+        )
+        apply_offset = mode == SPINDLE_PATH and not use_spindle_zero
         # Camera down to watch the path (follow); up to show the spindle path.
         cam = "M64 P0" if mode == CAMERA_FOLLOW else "M65 P0"
         # Pause at each point in camera-follow so the operator can view every cut.
@@ -62,12 +66,16 @@ class SimulationRunner:
         moves = dryrun_moves(self.program, self.config.camera_offset, apply_offset,
                              safe_z, dwell_s=dwell,
                              simulation_feed=simulation_feed)
+        coordinate_system = "G55" if use_spindle_zero else "G54"
         lines: List[str] = [
             f"( CamVision dry-run: {mode} — safe Z {safe_z:.3f} — "
             f"XY feed {simulation_feed:.0f} mm/min )",
+            coordinate_system,
             cam,
         ]
         lines += moves
+        if use_spindle_zero:
+            lines.append("G54")
         lines.append("M2")
         fd, path = tempfile.mkstemp(prefix="camvision_sim_", suffix=".ngc")
         with os.fdopen(fd, "w") as f:
