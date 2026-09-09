@@ -96,7 +96,7 @@ def main(argv=None) -> int:
     from PyQt5.QtGui import QColor
     from PyQt5.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog,
                                  QLabel, QLineEdit, QMessageBox, QPushButton,
-                                 QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                                 QPlainTextEdit, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -135,6 +135,11 @@ def main(argv=None) -> int:
     table.setEditTriggers(QTableWidget.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectRows)
     layout.addWidget(table)
+    details = QPlainTextEdit()
+    details.setReadOnly(True)
+    details.setPlaceholderText("Select an event to view G54/G55, machine Z, and program safety values.")
+    details.setMaximumHeight(155)
+    layout.addWidget(details)
     buttons = QHBoxLayout()
     export = QPushButton("Export to Excel")
     reset = QPushButton("Reset password")
@@ -168,6 +173,18 @@ def main(argv=None) -> int:
             except Exception as exc:
                 QMessageBox.warning(window, "Audit log", f"Could not export Excel file: {exc}")
 
+    def show_details() -> None:
+        selected = table.currentRow()
+        if selected < 0 or selected >= len(shown_rows):
+            return
+        row = shown_rows[selected]
+        try:
+            detail_json = json.dumps(json.loads(row[7]), indent=2, sort_keys=True)
+            snapshot_json = json.dumps(json.loads(row[8]), indent=2, sort_keys=True)
+        except (TypeError, ValueError):
+            detail_json, snapshot_json = str(row[7]), str(row[8])
+        details.setPlainText(f"Program / event values:\n{detail_json}\n\nLinuxCNC snapshot:\n{snapshot_json}")
+
     def do_reset() -> None:
         password, ok = QInputDialog.getText(window, "Reset audit password", "New password:", QLineEdit.Password)
         if not ok:
@@ -185,6 +202,7 @@ def main(argv=None) -> int:
         QMessageBox.information(window, "Audit log", "Password reset and recorded.")
 
     filter_edit.textChanged.connect(populate); export.clicked.connect(do_export); reset.clicked.connect(do_reset)
+    table.itemSelectionChanged.connect(show_details)
     populate(); window.resize(1150, 650); window.show()
     return app.exec_()
 

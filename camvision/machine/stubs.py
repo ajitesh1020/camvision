@@ -51,6 +51,9 @@ class _Stat:
         self.g5x_index = 1
         self.g92_offset = (0.0,) * 9
         self.file = ""
+        self.current_line = 0
+        self.motion_line = 0
+        self.paused = False
 
     def poll(self):  # noqa: D401 - mirrors linuxcnc API
         return None

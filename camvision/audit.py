@@ -46,6 +46,10 @@ class AuditLog:
         self._thread = threading.Thread(target=self._writer, name="camvision-audit", daemon=True)
         self._last_state: tuple[Any, ...] | None = None
         self._last_file = ""
+        self._run_active = False
+        self._last_paused: bool | None = None
+        self._last_line: tuple[str, Any, Any] | None = None
+        self._last_wcs: tuple[Any, ...] | None = None
         self._dropped = 0
         self._thread.start()
 
@@ -88,6 +92,7 @@ class AuditLog:
             "task_mode": getattr(stat, "task_mode", None),
             "motion_line": getattr(stat, "motion_line", None),
             "current_line": getattr(stat, "current_line", None),
+            "paused": bool(getattr(stat, "paused", False)),
         }
 
     def observe_status(self, stat: Any, linuxcnc: Any, *, operator: str = "",
@@ -103,27 +108,47 @@ class AuditLog:
         self._last_state = state
 
         path = snap["file"]
+        # LinuxCNC exposes only the active work coordinate system through
+        # status. Record it when it changes, not on every 200 ms poll. This
+        # captures the actual G54/G55 used while AXIS executes a program.
+        wcs = (snap["g5x_index"], *snap["g5x_offset"])
+        if wcs != self._last_wcs:
+            self._last_wcs = wcs
+            g_code = _g5x_name(snap["g5x_index"])
+            self.record("machine", "work_offset", message=f"Active work offset: {g_code}.",
+                        operator=operator, program_name=program_name, program_path=path,
+                        details={"coordinate_system": g_code, "g5x_offset": snap["g5x_offset"]},
+                        snapshot=snap)
         if path and path != self._last_file:
             self._last_file = path
             self.record("program", "loaded", message="LinuxCNC loaded program", operator=operator,
                         program_name=program_name, program_path=path,
                         details={"gcode_summary_pending": True}, snapshot=snap)
-        if previous is None:
-            return
-        old_interp = previous[1]
-        if interp == reading and old_interp != reading:
+        # AXIS can enter AUTO after CamVision starts, and some LinuxCNC builds
+        # expose execution more reliably via current_line/motion_line than
+        # interp_state. Any advancing line means the loaded program is running.
+        line = (path, snap["current_line"], snap["motion_line"])
+        advancing_line = self._last_line is not None and path == self._last_line[0] and line != self._last_line
+        self._last_line = line
+        running = interp in (reading, getattr(linuxcnc, "INTERP_WAITING", 4)) or advancing_line
+        paused_now = snap["paused"] or interp == paused
+        if running and not paused_now and not self._run_active:
             self.record("program", "run", message="Program execution started", operator=operator,
                         program_name=program_name, program_path=path, snapshot=snap)
-        elif interp == paused and old_interp != paused:
+            self._run_active = True
+        if paused_now and self._last_paused is not True and self._run_active:
             self.record("program", "pause", message="Program execution paused", operator=operator,
                         program_name=program_name, program_path=path, snapshot=snap)
-        elif old_interp == paused and interp == reading:
+        elif self._last_paused is True and not paused_now and self._run_active:
             self.record("program", "resume", message="Program execution resumed", operator=operator,
                         program_name=program_name, program_path=path, snapshot=snap)
-        elif old_interp in (reading, paused) and interp == idle:
+        self._last_paused = paused_now
+        old_interp = previous[1] if previous is not None else None
+        if self._run_active and interp == idle and old_interp != idle:
             self.record("program", "stopped", severity="warning",
                         message="Program returned to idle; completed versus abort cannot be proven from status alone.",
                         operator=operator, program_name=program_name, program_path=path, snapshot=snap)
+            self._run_active = False
 
     def record_error(self, message: str, stat: Any, *, operator: str = "", program_name: str = "") -> None:
         self.record("linuxcnc", "error", severity="error", message=message,
@@ -205,3 +230,12 @@ def _gcode_summary(path: str) -> Dict[str, Any]:
         "readable": True, "sha256": hashlib.sha256(raw).hexdigest(),
         "line_count": len(lines), "header": comments[:20], "z_commands": z_lines[:2000],
     }
+
+
+def _g5x_name(index: Any) -> str:
+    """Map LinuxCNC's 1-based G5x index to the operator-facing name."""
+    try:
+        value = int(index)
+    except (TypeError, ValueError):
+        return "unknown"
+    return {1: "G54", 2: "G55", 3: "G56", 4: "G57", 5: "G58", 6: "G59"}.get(value, f"G5x-{value}")
