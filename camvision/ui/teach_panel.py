@@ -305,9 +305,11 @@ class TeachPanel(QGroupBox):
 
     # -- visibility -------------------------------------------------------
     def set_arc_teaching_visible(self, visible: bool) -> None:
-        """Show/hide the arc + circle controls (toggled from Setup)."""
+        """Show/hide arc controls and arc-only coordinate columns from Setup."""
         for w in (self.btn_arc, self.btn_circle, self.radius_label, self.radius_spin):
             w.setVisible(visible)
+        for column in (5, 6, 7):  # Cx, Cy and R are only meaningful for arcs/circles.
+            self.table.setColumnHidden(column, not visible)
 
     # -- capture ----------------------------------------------------------
     def add_point(self) -> None:

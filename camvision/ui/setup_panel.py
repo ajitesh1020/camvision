@@ -77,8 +77,8 @@ class SetupPanel(QGroupBox):
         self.chk_autodetect = QCheckBox("Fiducial autodetect overlay")
         self.chk_autodetect.setChecked(self.config.checkbox("enable_autodetection", False))
         self.chk_arc_teach = QCheckBox("Enable arc / circle teaching")
-        self.chk_arc_teach.setToolTip("Show the 3-Point Arc, Add Circle and Circle-R controls on "
-                                      "the Teach tab. Off = straight-line teaching only.")
+        self.chk_arc_teach.setToolTip("Show the 3-Point Arc, Add Circle, Circle-R, and Cx/Cy/R "
+                                      "columns on the Teach tab. Off = straight-line teaching only.")
         self.chk_arc_teach.setChecked(self.config.checkbox("enable_arc_teaching", False))
         self.chk_arc_teach.stateChanged.connect(self._apply_arc_teaching)
 

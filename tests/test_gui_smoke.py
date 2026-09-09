@@ -104,9 +104,12 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path, monkeypatch):
             "G1 X0.0000 Y30.0000 F600",
         ]
 
-        # Arc-teaching visibility toggle does not crash.
+        # Arc-only columns stay out of the way until arc/circle teaching is enabled.
+        assert all(teach.table.isColumnHidden(column) for column in (5, 6, 7))
         teach.set_arc_teaching_visible(True)
+        assert all(not teach.table.isColumnHidden(column) for column in (5, 6, 7))
         teach.set_arc_teaching_visible(False)
+        assert all(teach.table.isColumnHidden(column) for column in (5, 6, 7))
 
         # Simulation: Build draws the path on the camera view, Step advances it.
         sim = win.simulate_panel
