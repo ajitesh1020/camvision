@@ -158,6 +158,33 @@ class TeachPanel(QGroupBox):
         self.btn_goto.clicked.connect(self.move_to_selected)
         self.btn_del.clicked.connect(self.delete_row)
 
+        # Correction of an already taught cut, expressed in machine axes.  The
+        # complete segment is moved so its shape (length / arc radius) is kept.
+        adjust = QHBoxLayout()
+        adjust.addWidget(QLabel("Adjust selected cut (machine mm):"))
+        adjust.addWidget(QLabel("ΔX"))
+        self.adjust_dx = QDoubleSpinBox()
+        self.adjust_dx.setRange(-1000.0, 1000.0)
+        self.adjust_dx.setDecimals(4)
+        self.adjust_dx.setSingleStep(0.1)
+        self.adjust_dx.setToolTip("Positive value moves the selected cut in machine +X.")
+        adjust.addWidget(self.adjust_dx)
+        adjust.addWidget(QLabel("ΔY"))
+        self.adjust_dy = QDoubleSpinBox()
+        self.adjust_dy.setRange(-1000.0, 1000.0)
+        self.adjust_dy.setDecimals(4)
+        self.adjust_dy.setSingleStep(0.1)
+        self.adjust_dy.setToolTip("Positive value moves the selected cut in machine +Y.")
+        adjust.addWidget(self.adjust_dy)
+        self.btn_adjust = QPushButton("Adjust Selected Cut")
+        self.btn_adjust.setToolTip(
+            "Moves the entire selected cut by ΔX/ΔY in machine coordinates. "
+            "The camera-to-spindle offset is still applied once at G-code export."
+        )
+        adjust.addWidget(self.btn_adjust)
+        root.addLayout(adjust)
+        self.btn_adjust.clicked.connect(self.adjust_selected_cut)
+
         # File actions
         files = QHBoxLayout()
         self.btn_new = QPushButton("New")
@@ -415,6 +442,34 @@ class TeachPanel(QGroupBox):
         safe_z = self.config.gcode_params()["z_safe"]
         self.controller.mdi(f"G0 Z{safe_z:.4f}")
         self.controller.move_work_xy(target[0], target[1])
+
+    def adjust_selected_cut(self) -> None:
+        """Translate every coordinate belonging to the selected segment."""
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self.program.segments):
+            QMessageBox.information(self, "Select a row", "Select the cut row to adjust.")
+            return
+
+        dx = float(self.adjust_dx.value())
+        dy = float(self.adjust_dy.value())
+        if dx == 0.0 and dy == 0.0:
+            self._set_status("No adjustment applied: enter a non-zero ΔX or ΔY.")
+            return
+
+        segment = self.program.segments[row]
+        for name in ("start", "end", "center"):
+            point = getattr(segment, name)
+            if point is not None:
+                setattr(segment, name, (point[0] + dx, point[1] + dy))
+
+        self._rebuild_table()
+        self.table.selectRow(row)
+        self.adjust_dx.setValue(0.0)
+        self.adjust_dy.setValue(0.0)
+        self._set_status(
+            f"Cut row {row + 1} shifted in machine axes: ΔX {dx:+.4f}, ΔY {dy:+.4f} mm."
+        )
+        self._emit_changed()
 
     # -- table ------------------------------------------------------------
     def _append_row(self, seg: Segment) -> None:

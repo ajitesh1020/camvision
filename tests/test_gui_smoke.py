@@ -81,11 +81,26 @@ def test_mainwindow_builds_and_teaches(qapp, tmp_path, monkeypatch):
         assert teach.program.segments[2].end == (0.0, 30.0)
         assert getattr(teach.program.segments[1], "_highlight", False) is True
 
+        # Correct the selected whole cut in machine coordinates.  Both endpoints
+        # move together, while the other cuts remain unchanged.
+        teach.table.selectRow(1)
+        teach.adjust_dx.setValue(0.2)
+        teach.adjust_dy.setValue(-0.1)
+        teach.btn_adjust.click()
+        assert teach.program.segments[1].start == (5.2, 11.9)
+        assert teach.program.segments[1].end == (5.2, 15.9)
+        assert teach.program.segments[0].start == (0.0, 0.0)
+        assert teach.table.item(1, 1).text() == "5.200"
+        assert teach.table.item(1, 2).text() == "11.900"
+        assert teach.adjust_dx.value() == 0.0
+        assert teach.adjust_dy.value() == 0.0
+        assert "Cut row 2 shifted" in teach.arc_status.text()
+
         gcode = generate_gcode(teach.program, apply_offset=False)
         cut_moves = [line for line in gcode if line.startswith("G1 X")]
         assert cut_moves == [
             "G1 X0.0000 Y10.0000 F600",
-            "G1 X5.0000 Y16.0000 F600",
+            "G1 X5.2000 Y15.9000 F600",
             "G1 X0.0000 Y30.0000 F600",
         ]
 
