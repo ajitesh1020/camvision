@@ -31,6 +31,8 @@ class SetupPanel(QGroupBox):
     request_fiducial_cycle = pyqtSignal()
     overlays_changed = pyqtSignal()
     arc_teaching_changed = pyqtSignal(bool)
+    retract_changed = pyqtSignal(float)
+    calibration_changed = pyqtSignal()
 
     def __init__(self, controller, config, camera_service, parent=None):
         super().__init__("Setup", parent)
@@ -41,6 +43,7 @@ class SetupPanel(QGroupBox):
         root = QVBoxLayout(self)
         root.addWidget(self._camera_group())
         root.addWidget(self._offset_group())
+        root.addWidget(self._gcode_group())
         root.addWidget(self._fiducial_group())
         # Camera up/down and Set X/Y Zero now live on the main camera bar.
 
@@ -115,6 +118,37 @@ class SetupPanel(QGroupBox):
         overlays.addWidget(self.chk_autodetect)
         form.addRow(overlays)
         form.addRow(self.chk_arc_teach)
+        return box
+
+    # -- G-code -----------------------------------------------------------
+    def _gcode_group(self) -> QGroupBox:
+        box = QGroupBox("G-code")
+        form = QFormLayout(box)
+
+        self.retract_z = QDoubleSpinBox()
+        self.retract_z.setRange(-1000.0, 1000.0)
+        self.retract_z.setDecimals(4)
+        self.retract_z.setSingleStep(1.0)
+        self.retract_z.setValue(self.config.gcode_params()["retract"])
+        self.retract_z.setToolTip(
+            "Z clearance used immediately before each plunge. This is independent "
+            "of Safe Z, which is used for travel between cuts."
+        )
+        self.retract_z.valueChanged.connect(self._apply_gcode)
+        form.addRow("Retract Z (mm)", self.retract_z)
+
+        self.simulation_feed = QDoubleSpinBox()
+        self.simulation_feed.setRange(1.0, 10000.0)
+        self.simulation_feed.setDecimals(0)
+        self.simulation_feed.setSingleStep(25.0)
+        self.simulation_feed.setSuffix(" mm/min")
+        self.simulation_feed.setValue(self.config.gcode_params()["simulation_feed"])
+        self.simulation_feed.setToolTip(
+            "XY speed used for taught cutting segments in both Camera Follow and "
+            "Spindle Follow. Non-cutting travel between segments remains rapid G0 motion."
+        )
+        self.simulation_feed.valueChanged.connect(self._apply_simulation_feed)
+        form.addRow("Simulation feed", self.simulation_feed)
         return box
 
     def _apply_arc_teaching(self) -> None:
@@ -303,6 +337,16 @@ class SetupPanel(QGroupBox):
             self.config.mm_per_pixel = float(self.mm_per_px.text())
         except ValueError:
             pass
+        self.config.save()
+        self.calibration_changed.emit()
+
+    def _apply_gcode(self, retract: float) -> None:
+        self.config.set("Gcode_Param", "retract", float(retract))
+        self.config.save()
+        self.retract_changed.emit(float(retract))
+
+    def _apply_simulation_feed(self, feed: float) -> None:
+        self.config.set("Gcode_Param", "simulation_feed", float(feed))
         self.config.save()
 
     def _apply_fiducial(self) -> None:

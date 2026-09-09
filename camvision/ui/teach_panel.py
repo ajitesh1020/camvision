@@ -2,8 +2,8 @@
 
 Workflow mirrors the legacy start/end capture but generalises it:
 
-* **Capture Start** stores the current work XY.
-* **Add Line** appends a LINE from the stored start to the current XY.
+* **Add Point** captures independent cuts as start/end pairs. Travel between
+  one cut's end and the next cut's start is generated automatically.
 * **3-Point Arc** captures start, a mid point and an end; the circumcentre and
   turn direction give a true G2/G3 arc.
 * **Add Circle** makes a full circle from a centre (current XY) and a radius.
@@ -15,9 +15,10 @@ generator, so a saved teach program and its cut match exactly.
 
 from __future__ import annotations
 
+import os
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDoubleSpinBox,
@@ -45,6 +46,7 @@ from ..program.model import (
 from ..program.store import load_program, save_program
 
 COLUMNS = ["Type", "X start", "Y start", "X end", "Y end", "Cx", "Cy", "R", "Dir", "Z"]
+CAPTURE_NOTICE_MS = 2000
 
 
 class TeachPanel(QGroupBox):
@@ -61,6 +63,7 @@ class TeachPanel(QGroupBox):
         self._start: Optional[Tuple[float, float]] = None
         self._last_point: Optional[Tuple[float, float]] = None
         self._insert_start: Optional[Tuple[float, float]] = None
+        self._insert_after: Optional[int] = None
         self._arc_points: List[Tuple[float, float]] = []
 
         root = QVBoxLayout(self)
@@ -68,14 +71,18 @@ class TeachPanel(QGroupBox):
         # Metadata
         meta = QHBoxLayout()
         meta.addWidget(QLabel("Program:"))
-        self.name_edit = QLineEdit()
+        self.name_edit = QLineEdit(self.program.program_name)
         self.name_edit.setToolTip("Program name, stored in the saved .cvprog file.")
         meta.addWidget(self.name_edit)
         meta.addWidget(QLabel("Operator:"))
-        self.operator_edit = QLineEdit()
+        self.operator_edit = QLineEdit(self.program.operator)
         self.operator_edit.setToolTip("Operator name, stored with the program for traceability.")
         meta.addWidget(self.operator_edit)
         root.addLayout(meta)
+        self.name_edit.textChanged.connect(lambda _text: self._sync_meta())
+        self.operator_edit.textChanged.connect(lambda _text: self._sync_meta())
+        self.name_edit.editingFinished.connect(self._persist_metadata)
+        self.operator_edit.editingFinished.connect(self._persist_metadata)
 
         # Depth for the next captured segment
         depth_row = QHBoxLayout()
@@ -96,15 +103,12 @@ class TeachPanel(QGroupBox):
         depth_row.addWidget(self.radius_spin)
         root.addLayout(depth_row)
 
-        # Capture buttons. A single "Add Point" chains straight cuts: the first
-        # click sets the start, each further click adds a line from the previous
-        # point — no separate start/line buttons to confuse the order.
+        # Capture buttons. Each straight cut is one simple start/end pair.
         caps = QHBoxLayout()
         self.btn_point = QPushButton("Add Point")
         self.btn_point.setToolTip(
-            "Capture one cut: click at the cut START, jog, then click at the cut END. "
-            "Each start→end pair is a separate cut; the move to the next cut's start "
-            "is a rapid (not a cut)."
+            "Click once at the cut START, jog to the cut END, and click again. "
+            "Travel to the next cut start is generated automatically."
         )
         self.btn_arc = QPushButton("3-Point Arc")
         self.btn_arc.setToolTip("Capture three points (start, a point on the arc, end); the arc "
@@ -121,24 +125,27 @@ class TeachPanel(QGroupBox):
         self.arc_status = QLabel("Click Add Point to set the start of the path.")
         self.arc_status.setWordWrap(True)
         root.addWidget(self.arc_status)
+        self._capture_notice_after_text = self.arc_status.text()
+        self._capture_notice_timer = QTimer(self)
+        self._capture_notice_timer.setSingleShot(True)
+        self._capture_notice_timer.timeout.connect(self._clear_capture_notification)
 
         # Table
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.setToolTip("Taught segments (5 rows shown; scroll for more). "
-                              "Select a row and 'Delete Row' to remove it.")
+        self.table.setToolTip("Every row is one taught cut. Travel between rows is generated "
+                              "automatically at Safe Z.")
         # Keep the table compact: show ~5 rows by default and scroll inside it for
         # more, instead of stretching to consume the whole tab.
         self._fit_table_height(5)
         root.addWidget(self.table, 0)
 
-        # Row editing: insert a point after the selected row, jog to a row, delete.
+        # Row editing: insert a complete cut after the selected cut/gap.
         edit = QHBoxLayout()
-        self.btn_insert = QPushButton("Insert Point (here)")
+        self.btn_insert = QPushButton("Insert Cut After Selected")
         self.btn_insert.setToolTip(
-            "Insert a new line after the selected row. Click once at the START "
-            "point, jog, then click again at the END point. The inserted row is "
-            "highlighted green."
+            "Select the cut after which to insert. Move to the new cut START and click "
+            "once, then move to its END and click again. Travel remains automatic."
         )
         self.btn_goto = QPushButton("Move to Selected")
         self.btn_goto.setToolTip("Rapid the machine to the selected row's start point (safe Z first).")
@@ -185,23 +192,89 @@ class TeachPanel(QGroupBox):
     def _new_program(self) -> Program:
         g = self.config.gcode_params()
         return Program(
+            program_name=str(self.config.get("Program_Settings", "program_name", "")),
+            operator=str(self.config.get("Program_Settings", "operator", "")),
             depth=g["depth"], retract=g["retract"], z_safe=g["z_safe"],
             spindle_rpm=g["spindle_rpm"], tool_dia=g["tool_dia"],
             z_feed=g["z_feed"], xy_feed=g["xy_feed"],
         )
 
     def _current_xy(self) -> Tuple[float, float]:
-        x, y, _z = self.controller.work_position()
+        x, y, _z = self._current_position()
         return x, y
+
+    def _current_position(self) -> Tuple[float, float, float]:
+        x, y, z = self.controller.work_position()
+        return float(x), float(y), float(z)
 
     def _sync_meta(self) -> None:
         self.program.program_name = self.name_edit.text()
         self.program.operator = self.operator_edit.text()
         self.program.fiducial_check = self.config.checkbox("enable_fiducial_check")
+        self.config.set("Program_Settings", "program_name", self.program.program_name)
+        self.config.set("Program_Settings", "operator", self.program.operator)
+
+    def _persist_metadata(self) -> None:
+        self._sync_meta()
+        self.config.save()
 
     def _emit_changed(self) -> None:
         self._sync_meta()
         self.program_changed.emit()
+
+    def _set_status(self, text: str) -> None:
+        """Show an ordinary instruction and cancel any pending capture flash."""
+        self._capture_notice_timer.stop()
+        self.arc_status.setStyleSheet("")
+        self.arc_status.setText(text)
+
+    def _show_capture_notification(
+        self,
+        point_name: str,
+        position: Tuple[float, float, float],
+        after_text: str,
+    ) -> None:
+        """Flash captured coordinates, then restore the next workflow instruction."""
+        x, y, z = position
+        self._capture_notice_timer.stop()
+        self._capture_notice_after_text = after_text
+        self.arc_status.setText(
+            f"{point_name} point captured — X{x:.3f}  Y{y:.3f}  Z{z:.3f}"
+        )
+        self.arc_status.setStyleSheet(
+            "QLabel { background-color: #c6efce; color: #006100; "
+            "border: 1px solid #70ad47; border-radius: 3px; "
+            "padding: 6px; font-weight: bold; }"
+        )
+        self._capture_notice_timer.start(CAPTURE_NOTICE_MS)
+
+    def _clear_capture_notification(self) -> None:
+        self._capture_notice_timer.stop()
+        self.arc_status.setStyleSheet("")
+        self.arc_status.setText(self._capture_notice_after_text)
+
+    def set_safe_z(self, value: float) -> None:
+        """Apply a newly captured Safe Z to the active taught program."""
+        self.program.z_safe = float(value)
+        self._emit_changed()
+
+    def set_retract(self, value: float) -> None:
+        """Apply the Setup retract clearance to the active taught program."""
+        self.program.retract = float(value)
+        self._emit_changed()
+
+    def set_tool_diameter(self, value: float) -> None:
+        """Apply the selected cutting-tool diameter to the active program."""
+        self.program.tool_dia = float(value)
+        self._emit_changed()
+
+    def _dialog_directory(self) -> str:
+        return str(self.config.get("Program_Settings", "last_directory", "") or "")
+
+    def _remember_program_path(self, path: str) -> None:
+        directory = os.path.dirname(os.path.abspath(path))
+        self.config.set("Program_Settings", "last_directory", directory)
+        self.config.save()
 
     # -- visibility -------------------------------------------------------
     def set_arc_teaching_visible(self, visible: bool) -> None:
@@ -211,87 +284,119 @@ class TeachPanel(QGroupBox):
 
     # -- capture ----------------------------------------------------------
     def add_point(self) -> None:
-        """Capture one cut as a START then an END pair (no chaining between cuts).
-
-        Click 1 records the cut START, click 2 the cut END and adds the line.
-        The move from one cut's end to the next cut's start is a rapid, not a cut,
-        so only the taught start→end pairs are cutting moves.
-        """
-        p = self._current_xy()
+        """Capture one independent cut as a start/end pair."""
+        position = self._current_position()
+        p = position[:2]
         if self._last_point is None:
             self._last_point = p
-            self.arc_status.setText(
-                f"Cut START at {p[0]:.3f}, {p[1]:.3f}. Jog to the cut END and click "
-                f"Add Point again."
+            self._show_capture_notification(
+                "START", position,
+                "Jog to the cut END and click Add Point again.",
             )
             return
         self.program.add_line(self._last_point, p, self.depth_spin.value())
-        self._last_point = None  # reset — the next cut is a fresh start/end pair
+        self._last_point = None
         self._append_row(self.program.segments[-1])
-        self.arc_status.setText("Cut added. Click Add Point for the START of the next cut.")
+        self._show_capture_notification(
+            "END", position,
+            "Cut added. Click Add Point at the next cut START.",
+        )
         self._emit_changed()
 
     # Kept for compatibility / tests: explicit start + end.
     def capture_start(self) -> None:
-        self._last_point = self._current_xy()
+        position = self._current_position()
+        self._last_point = position[:2]
+        self._show_capture_notification(
+            "START", position,
+            "Jog to the cut END and click Add Point again.",
+        )
 
     def add_line(self) -> None:
         self.add_point()
 
     def capture_arc_point(self) -> None:
-        self._arc_points.append(self._current_xy())
+        position = self._current_position()
+        self._arc_points.append(position[:2])
         n = len(self._arc_points)
-        self.arc_status.setText(f"Arc point {n}/3 captured.")
-        if n == 3:
-            p1, p2, p3 = self._arc_points
-            try:
-                center = center_from_three_points(p1, p2, p3)
-            except ValueError as exc:
-                QMessageBox.warning(self, "Bad arc", str(exc))
-                self._arc_points = []
-                return
-            direction = arc_direction_from_three_points(p1, p2, p3)
-            self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
+        if n < 3:
+            self._show_capture_notification(
+                f"ARC {n}/3", position,
+                f"Jog to arc point {n + 1}/3 and click 3-Point Arc.",
+            )
+            return
+
+        p1, p2, p3 = self._arc_points
+        try:
+            center = center_from_three_points(p1, p2, p3)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bad arc", str(exc))
             self._arc_points = []
-            self._last_point = None  # each cut is a fresh start/end; no chaining
-            self.arc_status.setText("Arc added.")
-            self._append_row(self.program.segments[-1])
-            self._emit_changed()
+            self._set_status("Arc points were invalid. Capture arc point 1/3 again.")
+            return
+        direction = arc_direction_from_three_points(p1, p2, p3)
+        self.program.add_arc(p1, p3, center, self.depth_spin.value(), direction)
+        self._arc_points = []
+        self._last_point = None  # each cut is a fresh start/end; no chaining
+        self._append_row(self.program.segments[-1])
+        self._show_capture_notification("ARC 3/3", position, "Arc added.")
+        self._emit_changed()
 
     def add_circle(self) -> None:
-        center = self._current_xy()
+        position = self._current_position()
+        center = position[:2]
         self.program.add_circle(center, self.radius_spin.value(), self.depth_spin.value())
         self._append_row(self.program.segments[-1])
+        self._show_capture_notification("CIRCLE CENTRE", position, "Circle added.")
         self._emit_changed()
 
     # -- row editing ------------------------------------------------------
     def insert_point(self) -> None:
-        """Insert a new LINE (its own start + end) after the selected row.
-
-        Two-step: the first click captures the START, the second the END. The
-        inserted row is highlighted so the added segment stands out.
-        """
-        i = self.table.currentRow()
-        if i < 0 or i >= len(self.program.segments):
-            QMessageBox.information(self, "Select a row",
-                                    "Select the row to insert the new line after.")
-            return
-        p = self._current_xy()
+        """Insert one independent cut after the row selected on the first click."""
+        position = self._current_position()
+        p = position[:2]
         if self._insert_start is None:
+            i = self.table.currentRow()
+            if i < 0 or i >= len(self.program.segments):
+                QMessageBox.information(
+                    self, "Select a row", "Select the CUT row after which to insert."
+                )
+                return
             self._insert_start = p
-            self.arc_status.setText(
-                f"Insert: START captured at {p[0]:.3f}, {p[1]:.3f}. Jog to the END "
-                f"point and click Insert Point again."
+            self._insert_after = i
+            self.btn_insert.setText("Finish Insert Cut (END)")
+            self._show_capture_notification(
+                "INSERT START", position,
+                f"Start saved after CUT row {i + 1}. Jog to its END and click again.",
             )
             return
-        new_seg = Segment(type=SegmentType.LINE, start=self._insert_start, end=p,
-                          z=self.depth_spin.value())
-        new_seg._highlight = True  # transient (not saved) — colours the new row
-        self.program.segments.insert(i + 1, new_seg)
+
+        insert_after = self._insert_after
+        if insert_after is None or insert_after >= len(self.program.segments):
+            self._insert_start = None
+            self._insert_after = None
+            self.btn_insert.setText("Insert Cut After Selected")
+            QMessageBox.warning(self, "Cannot insert", "The selected path changed; start again.")
+            return
+
+        new_cut = Segment(
+            type=SegmentType.LINE,
+            start=self._insert_start,
+            end=p,
+            z=self.depth_spin.value(),
+        )
+        new_cut._highlight = True
+        self.program.segments.insert(insert_after + 1, new_cut)
+
         self._insert_start = None
+        self._insert_after = None
+        self.btn_insert.setText("Insert Cut After Selected")
         self._rebuild_table()
-        self.table.selectRow(i + 1)
-        self.arc_status.setText("Inserted new line (highlighted).")
+        self.table.selectRow(insert_after + 1)
+        self._show_capture_notification(
+            "INSERT END", position,
+            "New cut inserted in green; travel is generated automatically.",
+        )
         self._emit_changed()
 
     def move_to_selected(self) -> None:
@@ -356,13 +461,15 @@ class TeachPanel(QGroupBox):
     # -- files ------------------------------------------------------------
     def new_program(self) -> None:
         self.program = self._new_program()
-        self.name_edit.clear()
-        self.operator_edit.clear()
+        self.name_edit.setText(self.program.program_name)
+        self.operator_edit.setText(self.program.operator)
         self._start = None
         self._last_point = None
         self._insert_start = None
+        self._insert_after = None
+        self.btn_insert.setText("Insert Cut After Selected")
         self._arc_points = []
-        self.arc_status.setText("Click Add Point to set the start of the path.")
+        self._set_status("Click Add Point to set the start of the path.")
         self.table.setRowCount(0)
         self._emit_changed()
 
@@ -373,25 +480,34 @@ class TeachPanel(QGroupBox):
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid program", str(exc))
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Save program", "", "CamVision program (*.cvprog)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save program", self._dialog_directory(), "CamVision program (*.cvprog)"
+        )
         if not path:
             return
         if not path.endswith(".cvprog"):
             path += ".cvprog"
         save_program(self.program, path)
+        self._remember_program_path(path)
         QMessageBox.information(self, "Saved", f"Program saved to {path}")
 
     def load(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Load program", "", "CamVision program (*.cvprog)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load program", self._dialog_directory(), "CamVision program (*.cvprog)"
+        )
         if not path:
             return
         self.program = load_program(path)
         self.name_edit.setText(self.program.program_name)
         self.operator_edit.setText(self.program.operator)
         self.depth_spin.setValue(self.program.depth)
-        self._last_point = None  # next Add Point starts a fresh cut
+        self._last_point = None
+        self._insert_start = None
+        self._insert_after = None
+        self.btn_insert.setText("Insert Cut After Selected")
         self._rebuild_table()
         self._emit_changed()
+        self._remember_program_path(path)
 
     def export_gcode(self) -> None:
         self._sync_meta()
@@ -403,11 +519,14 @@ class TeachPanel(QGroupBox):
         if not self.program.segments:
             QMessageBox.warning(self, "Empty", "Teach at least one segment first.")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export G-code", "", "G-code (*.ngc)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export G-code", self._dialog_directory(), "G-code (*.ngc)"
+        )
         if not path:
             return
         if not path.endswith(".ngc"):
             path += ".ngc"
         apply_offset = self.config.checkbox("apply_spindle_offsets", True)
         write_gcode(self.program, path, offset=self.config.camera_offset, apply_offset=apply_offset)
+        self._remember_program_path(path)
         QMessageBox.information(self, "Exported", f"G-code written to {path}")

@@ -59,6 +59,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "tool_dia": "0.5",
         "z_feed": "800",
         "xy_feed": "600",
+        # Shared speed for the cutting segments in Camera/Spindle Follow.
+        # Non-cutting simulation travel remains rapid G0 motion.
+        "simulation_feed": "200",
+    },
+    "Program_Settings": {
+        "program_name": "",
+        "operator": "",
+        "last_directory": "",
     },
     "Pixel_to_mm_Data": {
         "pixels_per_mm": 0.08192319205190404,  # legacy key name; value is mm/pixel
@@ -215,6 +223,7 @@ class ConfigManager:
             "tool_dia": float(g["tool_dia"]),
             "z_feed": float(g["z_feed"]),
             "xy_feed": float(g["xy_feed"]),
+            "simulation_feed": float(g["simulation_feed"]),
         }
 
     def checkbox(self, name: str, default: bool = False) -> bool:
