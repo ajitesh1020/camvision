@@ -26,6 +26,10 @@ def test_not_ready_reasons():
     c.stat.enabled = 1
     c.stat.homed = [0, 0, 0]
     assert "homed" in c.not_ready_reason().lower()
+    c.set_development_mode(True)
+    assert c.not_ready_reason() is None
+    c.stat.estop = 1
+    assert "E-stop" in c.not_ready_reason()
 
 
 def test_set_camera_and_spindle_zero_keeps_g54_z():

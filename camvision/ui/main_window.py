@@ -51,6 +51,9 @@ class MainWindow(QMainWindow):
 
         self.config = ConfigManager(config_path)
         self.controller = MachineController()
+        self.controller.set_development_mode(
+            self.config.checkbox("development_mode", False)
+        )
 
         self.camera = CameraService(device=self.config.camera_device_spec)
         self.camera.flip_x = self.config.get("Camera_Settings", "flip_x", False)
@@ -120,7 +123,15 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self.status, 1)
         self.dro = QLabel("")
         self.state_label = QLabel("")
+        self.dev_mode_label = QLabel("DEV MODE: UNHOMED MOTION")
+        self.dev_mode_label.setStyleSheet("color:#b35c00;font-weight:bold;")
+        self.dev_mode_label.setToolTip(
+            "Development mode is enabled. CamVision permits unhomed motion; LinuxCNC "
+            "still requires [TRAJ] NO_FORCE_HOMING = 1."
+        )
+        self.dev_mode_label.setVisible(self.controller.allow_unhomed_motion)
         self.statusBar().addPermanentWidget(self.state_label)
+        self.statusBar().addPermanentWidget(self.dev_mode_label)
         self.statusBar().addPermanentWidget(self.dro)
         self.statusBar().addPermanentWidget(QLabel(f"v{__version__}"))
         if self.controller.simulated:
@@ -256,6 +267,15 @@ class MainWindow(QMainWindow):
             f"offset X{off.x:.3f} Y{off.y:.3f} mm."
         )
 
+    def _set_development_mode(self, enabled: bool) -> None:
+        """Apply the persisted test-only unhomed-motion gate immediately."""
+        self.controller.set_development_mode(enabled)
+        self.dev_mode_label.setVisible(enabled)
+        self._notify(
+            "Development mode enabled: unhomed motion is allowed by CamVision."
+            if enabled else "Development mode disabled: homing is required by CamVision."
+        )
+
     def _go_to_safe_z(self) -> None:
         """Rapid Z to the saved Safe Z while preserving the current X/Y position."""
         reason = self.controller.not_ready_reason()
@@ -316,6 +336,7 @@ class MainWindow(QMainWindow):
         self.setup_panel.overlays_changed.connect(self._apply_overlays)
         self.setup_panel.arc_teaching_changed.connect(self.teach_panel.set_arc_teaching_visible)
         self.setup_panel.retract_changed.connect(self.teach_panel.set_retract)
+        self.setup_panel.development_mode_changed.connect(self._set_development_mode)
         self.setup_panel.calibration_changed.connect(
             lambda: self.camera_view.set_tool_diameter(self.tool_dia.value())
         )

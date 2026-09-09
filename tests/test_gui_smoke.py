@@ -141,11 +141,15 @@ def test_safe_z_move_and_retract_setting_are_independent(qapp, tmp_path, monkeyp
     config.set("Gcode_Param", "tool_dia", 0.5)
     config.set("Camera_offset", "camera_to_spindle_x_offset", 10.0)
     config.set("Camera_offset", "camera_to_spindle_y_offset", 5.0)
+    config.set_checkbox("development_mode", True)
     config.mm_per_pixel = 0.1
     config.save()
 
     win = MainWindow(config_path)
     try:
+        assert win.controller.allow_unhomed_motion is True
+        assert win.setup_panel.chk_development_mode.isChecked() is True
+        assert win.dev_mode_label.isHidden() is False
         commands = []
         monkeypatch.setattr(win.controller, "mdi", lambda command: commands.append(command) or True)
         win.btn_go_safe_z.click()
@@ -163,6 +167,11 @@ def test_safe_z_move_and_retract_setting_are_independent(qapp, tmp_path, monkeyp
         ]
         assert win.config.checkbox("use_spindle_zero_export") is True
         assert win.setup_panel.chk_spindle_zero_export.isChecked() is True
+
+        win.setup_panel.chk_development_mode.setChecked(False)
+        assert win.controller.allow_unhomed_motion is False
+        assert win.config.checkbox("development_mode") is False
+        assert win.dev_mode_label.isHidden() is True
 
         # Tool diameter is typed/selected once and drives config, program,
         # the physical-size crosshair circle, and later the G-code comment.

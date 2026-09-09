@@ -24,6 +24,7 @@ def test_defaults_and_typed_accessors(tmp_path):
     assert cm.gcode_params()["z_safe"] == 25.0
     assert cm.gcode_params()["simulation_feed"] == 200.0
     assert cm.checkbox("use_spindle_zero_export") is False
+    assert cm.checkbox("development_mode") is False
     assert cm.get("Program_Settings", "program_name") == ""
     assert cm.get("Program_Settings", "operator") == ""
     assert cm.get("Program_Settings", "last_directory") == ""
@@ -36,6 +37,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     cm.roi = (1, 2, 3, 4)
     cm.set_checkbox("enable_fiducial_check", True)
     cm.set_checkbox("use_spindle_zero_export", True)
+    cm.set_checkbox("development_mode", True)
     cm.set("Gcode_Param", "retract", 7.5)
     cm.set("Gcode_Param", "z_safe", 55.0)
     cm.set("Gcode_Param", "tool_dia", 1.5)
@@ -50,6 +52,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert cm2.roi == (1, 2, 3, 4)
     assert cm2.checkbox("enable_fiducial_check") is True
     assert cm2.checkbox("use_spindle_zero_export") is True
+    assert cm2.checkbox("development_mode") is True
     assert cm2.gcode_params()["retract"] == 7.5
     assert cm2.gcode_params()["z_safe"] == 55.0
     assert cm2.gcode_params()["tool_dia"] == 1.5

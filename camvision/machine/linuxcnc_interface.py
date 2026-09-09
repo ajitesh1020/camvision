@@ -52,6 +52,7 @@ class MachineController:
         self.linuxcnc, self.hal, self.simulated = _load_backends()
         self.stat = self.linuxcnc.stat()
         self.command = self.linuxcnc.command()
+        self.allow_unhomed_motion = False
         try:
             self.error_channel = self.linuxcnc.error_channel()
         except Exception:  # pragma: no cover - only if the API is unavailable
@@ -83,8 +84,16 @@ class MachineController:
         return self.stat.homed.count(1) >= self.stat.joints
 
     def ok_for_mdi(self) -> bool:
-        """Ready to accept MDI: powered, out of e-stop, homed and interp idle."""
+        """Ready to accept MDI: powered, out of e-stop, and idle (normally homed)."""
         return self.not_ready_reason() is None
+
+    def set_development_mode(self, enabled: bool) -> None:
+        """Allow unhomed motion through CamVision's gate for controlled testing.
+
+        This does not override LinuxCNC. The active INI must also contain
+        ``[TRAJ] NO_FORCE_HOMING = 1`` before LinuxCNC accepts unhomed MDI.
+        """
+        self.allow_unhomed_motion = bool(enabled)
 
     def not_ready_reason(self):
         """Return a human message why the machine can't move, or None if it can.
@@ -97,7 +106,7 @@ class MachineController:
             return "E-stop is active — release E-stop first."
         if not self.stat.enabled:
             return "Machine power is OFF — switch the machine on."
-        if self.stat.homed.count(1) < self.stat.joints:
+        if not self.allow_unhomed_motion and self.stat.homed.count(1) < self.stat.joints:
             return "Machine is not homed — Home All in AXIS first."
         if self.stat.interp_state != self.linuxcnc.INTERP_IDLE:
             return "Machine is busy — wait for the current motion to finish."

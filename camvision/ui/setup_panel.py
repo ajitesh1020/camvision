@@ -33,6 +33,7 @@ class SetupPanel(QGroupBox):
     arc_teaching_changed = pyqtSignal(bool)
     retract_changed = pyqtSignal(float)
     calibration_changed = pyqtSignal()
+    development_mode_changed = pyqtSignal(bool)
 
     def __init__(self, controller, config, camera_service, parent=None):
         super().__init__("Setup", parent)
@@ -160,6 +161,18 @@ class SetupPanel(QGroupBox):
         )
         self.chk_spindle_zero_export.stateChanged.connect(self._apply_spindle_zero_export)
         form.addRow(self.chk_spindle_zero_export)
+
+        self.chk_development_mode = QCheckBox("Development mode: allow unhomed motion")
+        self.chk_development_mode.setChecked(
+            self.config.checkbox("development_mode", False)
+        )
+        self.chk_development_mode.setToolTip(
+            "TESTING ONLY. CamVision will not block motion solely because the machine is "
+            "unhomed. LinuxCNC must also use [TRAJ] NO_FORCE_HOMING = 1. E-stop, "
+            "machine power, and busy-state protection remain active."
+        )
+        self.chk_development_mode.stateChanged.connect(self._apply_development_mode)
+        form.addRow(self.chk_development_mode)
         return box
 
     def _apply_arc_teaching(self) -> None:
@@ -369,6 +382,12 @@ class SetupPanel(QGroupBox):
     def enable_spindle_zero_export(self) -> None:
         """Reflect a successfully established G55 zero in the export setting."""
         self.chk_spindle_zero_export.setChecked(True)
+
+    def _apply_development_mode(self) -> None:
+        enabled = self.chk_development_mode.isChecked()
+        self.config.set_checkbox("development_mode", enabled)
+        self.config.save()
+        self.development_mode_changed.emit(enabled)
 
     def _apply_fiducial(self) -> None:
         f = self.config.data["Fiducials_Settings"]

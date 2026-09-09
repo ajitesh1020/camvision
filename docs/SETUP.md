@@ -142,6 +142,22 @@ same Z reference as G54, so all programmed Z values remain unchanged. Skew
 correction issues `G10 L2 P0 R<deg>`. Both need `HALUI = halui` in the INI
 (above) and a homed machine. No extra HAL is required for those.
 
+## Development mode (unhomed testing only)
+
+For controlled test motion without homing, set the LinuxCNC INI option below and
+enable **Development mode: allow unhomed motion** in CamVision's Setup → G-code
+section:
+
+```ini
+[TRAJ]
+NO_FORCE_HOMING = 1
+```
+
+The CamVision option is stored as `Checkbox_States.development_mode` in
+`config.json`. It only bypasses CamVision's own homing check; it does not bypass
+LinuxCNC. E-stop, machine-power, and busy-state checks remain active. Disable it
+before normal machine operation.
+
 ## 5. Auxiliary I/O
 
 If your machine has the indicator light tower, external buttons and

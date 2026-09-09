@@ -86,6 +86,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         # False preserves the legacy G54 export until the operator establishes
         # G55 with "Set Camera Zero + Spindle G55".
         "use_spindle_zero_export": False,
+        # Development-only: bypass CamVision's homing gate. LinuxCNC must also
+        # use [TRAJ] NO_FORCE_HOMING = 1 before it accepts unhomed MDI motion.
+        "development_mode": False,
         "enable_fiducial_check": False,
         "enable_arc_teaching": False,
     },
